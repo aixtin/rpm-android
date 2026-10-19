@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The wordmark is 53 dp wide, centred in the 108 dp layer. That is 74% of the 72 dp visible area
+     that a launcher mask leaves. Its height follows the wordmark's 507:195 ratio. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/wordmark"
+    android:insetLeft="27.5dp"
+    android:insetRight="27.5dp"
+    android:insetTop="43.8dp"
+    android:insetBottom="43.8dp" />

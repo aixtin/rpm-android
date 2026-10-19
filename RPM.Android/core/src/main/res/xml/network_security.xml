@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Internet radio: many stations in Radio Browser stream over plain http, and a station can be on any
+     host, so cleartext cannot be allowed per domain. The app's own hosts are only ever asked over https. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

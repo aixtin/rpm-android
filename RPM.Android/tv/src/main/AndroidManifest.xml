@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Neither is required, so the one APK installs on Google TV and on Fire TV. Amazon refuses an app
+         that requires a touch screen, and its own example declares leanback as not required. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+    <!-- The permissions and the playback service come from :core's manifest. -->
+
+    <application
+        android:name=".TvApplication"
+        android:banner="@drawable/banner"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/App_Name"
+        android:networkSecurityConfig="@xml/network_security"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Rpm">
+
+        <!-- LEANBACK_LAUNCHER puts the app in the Android TV launcher. LAUNCHER is kept beside it for
+             launchers that only list ordinary apps.
+             singleTask: a launch while the activity lives is handed to it (onNewIntent) rather than only bringing its
+             task to the front, so the launcher's now playing card can be told from the app row (MainActivity's
+             fromNowPlayingCard). It also keeps an `am start -n` from making a second activity. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Emoji2's start-up initializer, which Compose brings in, is left out: it loaded its font on the
+             main thread before the first frame, and the
+             boxes this is for draw emoji with the system's own font. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                tools:node="remove" />
+        </provider>
+    </application>
+
+</manifest>

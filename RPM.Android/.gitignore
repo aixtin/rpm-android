@@ -1,0 +1,14 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# The repo's own .gitignore ignores every folder named debug/ or release/, for the .NET builds.
+# Android's per-build-type source sets use those names, so they are let back in here.
+!*/src/debug/
+!*/src/release/

@@ -5,9 +5,11 @@ rules on UI text, comments and commit sign-off apply to every change.
 
 ## This repo
 
-The Android phone app (`phone`) and Android TV app (`tv`), sharing the `core` module.
+The Android phone app (`phone`) and Android TV app (`tv`), sharing the `core` module, all in
+`RPM.Android/`.
 
-- Build: `./gradlew :phone:assembleDebug` or `:tv:assembleDebug`. Tests: `./gradlew test`.
+- Build, from `RPM.Android`: `./gradlew :phone:assembleDebug` or `:tv:assembleDebug`. Tests:
+  `./gradlew test`.
 - Playback runs on Media3. Player calls belong on the player's thread.
 - Every TV screen must work with a D-pad and the Back key; check focus order when you add a control.
 - `ffmpeg` is a copy of the AndroidX Media3 FFmpeg extension. Do not change its upstream code

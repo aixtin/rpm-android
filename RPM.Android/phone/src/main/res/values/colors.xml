@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The app's background colour. Same as `RPMInk.ground` on the iPhone app. -->
+    <color name="ground">#FF0E1520</color>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The window's background while the app starts: black, with the dimmed wordmark where the opening
+     screen draws it, so the opening screen is visible from the moment the app is launched and not only from
+     its first frame. MainActivity sets the background back to plain black after that frame.
+     Written by scripts/gen_opening_wordmark.py. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black" />
+    <item
+        android:drawable="@drawable/wordmark_dim"
+        android:gravity="center"
+        android:width="130dp"
+        android:height="50dp" />
+</layer-list>

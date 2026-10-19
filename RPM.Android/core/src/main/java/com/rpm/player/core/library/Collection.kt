@@ -1,0 +1,198 @@
+package com.rpm.player.core.library
+
+import com.rpm.player.core.cloud.Shelf
+import com.rpm.player.core.cloud.CloudMoodLists
+import com.rpm.player.core.cloud.CloudPlaylist
+import com.rpm.player.core.cloud.CloudTrack
+import com.rpm.player.core.cloud.TrackPlaysRow
+
+/** How often a track has been played, on every device, and when last. */
+data class Plays(val count: Int, val lastPlayedAt: Long)
+
+/** What a list is called. The words for moods and decades are the app's own, so the screen resolves
+ * them; this layer only says which. */
+sealed interface ListName {
+    /** A generated list of a kind the app names (`Playlists_<kind>`); [fallback] where it does not. */
+    data class Mood(val kind: String, val fallback: String) : ListName
+    data class Decade(val decade: Int) : ListName
+    data class Text(val text: String) : ListName
+}
+
+/** A list of tracks to show and play: one the computer generated, or one the person made. */
+data class TrackList(
+    /** Unique among all lists: "mood/…" or "own/…". */
+    val id: String,
+    /** The id the cloud stores its picture under (`cloud/playlist-art/{id}`). */
+    val storeId: String,
+    val name: ListName,
+    val tracks: List<CloudTrack>,
+    /** How many of the songs the list names this library cannot find: a playlist can be pushed before its audio
+     * has finished uploading, so a list can be ahead of the store it plays from. The count is shown instead of
+     * quietly listing fewer songs. */
+    val missing: Int,
+    val folder: List<String>,
+    val generated: Boolean,
+    /** The generated kind ("Calm", "RightNow"…), null for a made list. */
+    val kind: String?,
+    /** A plain mood rather than a genre cut or a decade. */
+    val plainMood: Boolean,
+    /** The genre a generated list is cut to, or null; its decade, or 0. Its picture's colours are seeded from them. */
+    val genre: String?,
+    val decade: Int,
+    /** The sentence under a mood list's name on home, or null: every other list, and a mood whose songs
+     * name no genre. Worked out once here, off the main thread, rather than on every drawing of a card. */
+    val blurb: MoodLine?,
+)
+
+/**
+ * Everything one session's library holds, as the screens read it. Built once per load, off the main
+ * thread, by [of]: every cover model is worked out here, because working one out hashes the album's
+ * names, and a card that did it on every draw would make home stutter on a TV box.
+ *
+ * Equal only to itself, not a data class: each load is its own collection. Compose compares a parameter
+ * that is a new instance with `equals`, and a data class would compare every album, track and play of two
+ * libraries. When the cloud's copy replaces the cache's, every card holding the collection would do that,
+ * and the main thread would stop for over 5 seconds on a TV box (an ANR).
+ */
+class Collection(
+    /** Whose collection this is: the person's own, or one another account shares. */
+    val shelf: Shelf,
+    val albums: List<CloudAlbum>,
+    val tracksById: Map<String, CloudTrack>,
+    val plays: Map<String, Plays>,
+    val lists: List<TrackList>,
+    /** The album a track is on, by the wall's own grouping. */
+    val albumOf: Map<String, CloudAlbum>,
+    private val albumCovers: Map<String, Cover?>,
+    private val listCovers: Map<String, ListArt>,
+    /** The cloud's art index for [shelf], which [disc] reads. */
+    private val index: CoverIndex,
+) {
+    private val albumByKey: Map<String, CloudAlbum> by lazy { albums.associateBy { it.key } }
+    private val listById: Map<String, TrackList> by lazy { lists.associateBy { it.id } }
+
+    fun album(key: String): CloudAlbum? = albumByKey[key]
+    fun list(id: String): TrackList? = listById[id]
+
+    fun cover(album: CloudAlbum): Cover? = albumCovers[album.key]
+    fun cover(list: TrackList): ListArt? = listCovers[list.id]
+
+    /** The album's disc picture, or null when the index lists none. Worked out when first asked rather than for
+     * every album in [of], because it is asked for only when a record is queued or its page opens, and then kept:
+     * a list's queue asks once per track. */
+    fun disc(album: CloudAlbum): DiscArt? = synchronized(discs) {
+        if (discs.containsKey(album.key)) discs[album.key] else discFor(album, index, shelf).also { discs[album.key] = it }
+    }
+
+    private val discs = HashMap<String, DiscArt?>()
+
+    fun playsOf(album: CloudAlbum): Int = album.tracks.sumOf { plays[it.rpmId]?.count ?: 0 }
+    fun lastPlayedOf(album: CloudAlbum): Long = album.tracks.maxOfOrNull { plays[it.rpmId]?.lastPlayedAt ?: 0 } ?: 0
+    fun addedOf(album: CloudAlbum): Long = album.tracks.maxOfOrNull { it.addedAt } ?: 0
+
+    companion object {
+        fun of(
+            shelf: Shelf,
+            albums: List<CloudAlbum>,
+            tracksById: Map<String, CloudTrack>,
+            plays: Map<String, Plays>,
+            lists: List<TrackList>,
+            index: CoverIndex,
+        ): Collection {
+            val albumOf = buildMap { for (album in albums) for (track in album.tracks) put(track.rpmId, album) }
+            val albumCovers = albums.associate { it.key to coverFor(it, index, shelf) }
+            // A generated list uses the photograph shipped with the app, as on the desktop (GeneratedCover's
+            // order). The cloud also keeps a drawn picture for that list, but it is not asked for.
+            val listCovers = lists.associate { list ->
+                list.id to (
+                    (if (list.generated) PlaylistPhotos.of(list.kind, list.genre, list.decade) else null)
+                        ?: ListCover(shelf, list.storeId, list.tracks.firstNotNullOfOrNull { albumOf[it.rpmId] }?.let { albumCovers[it.key] })
+                    )
+            }
+            return Collection(shelf, albums, tracksById, plays, lists, albumOf, albumCovers, listCovers, index)
+        }
+    }
+}
+
+/** Turns the cloud's rows into the collection's plays and lists, with the same rules as the iOS app
+ * (`PlayLog.everythingPlayed`, `GeneratedLists.sets`, `PlaylistSet.resolve`). */
+object Lists {
+
+    /** Every device's totals added together; the latest play wins. */
+    fun plays(rows: List<TrackPlaysRow>): Map<String, Plays> {
+        val merged = HashMap<String, Plays>()
+        for (row in rows) {
+            val before = merged[row.rpmId]
+            merged[row.rpmId] = Plays(
+                count = (before?.count ?: 0) + row.plays,
+                lastPlayedAt = maxOf(before?.lastPlayedAt ?: 0, row.lastPlayedAt),
+            )
+        }
+        return merged
+    }
+
+    /** The generated lists, each showing its first window of tracks. Empty lists are left out: the
+     * computer does not push one, and an empty list would promise music and open on nothing. No other
+     * floor: the computer only sends a list long enough to show (`SmartPlaylists.LeastToShow`, one song
+     * for Favourite tracks, ten for a whole mood). On a borrowed [shelf] Your mix and the listening lists
+     * ([OWNER_ONLY]) are left out too: they are about the owner's own listening. The API leaves them out
+     * of a borrowed cut, and the iOS app drops them as well. */
+    fun generated(cut: CloudMoodLists?, byId: Map<String, CloudTrack>, shelf: Shelf): List<TrackList> =
+        cut?.lists.orEmpty().filter { it.trackIds.isNotEmpty() && !(shelf != Shelf.Own && it.kind in OWNER_ONLY) }.map { list ->
+            val storeId = list.id ?: "${list.kind}|${list.genre.orEmpty()}|${list.decade}"
+            val shown = window(list.trackIds, list.shows)
+            val tracks = shown.mapNotNull(byId::get)
+            TrackList(
+                id = "mood/$storeId",
+                storeId = storeId,
+                name = name(list.kind, list.genre, list.decade, list.title),
+                tracks = tracks,
+                missing = shown.size - tracks.size,
+                folder = list.folder,
+                generated = true,
+                kind = list.kind,
+                plainMood = list.genre == null && list.decade == 0,
+                genre = list.genre,
+                decade = list.decade,
+                blurb = MoodBlurb.of(list.kind, tracks.map { it.tags?.genre }),
+            )
+        }.filter { it.tracks.isNotEmpty() }
+
+    /** The person's own playlists, sorted by name, each track found in the catalogue or left out. */
+    fun own(playlists: List<CloudPlaylist>, byId: Map<String, CloudTrack>): List<TrackList> =
+        playlists.map { list ->
+            val tracks = list.trackIds.mapNotNull(byId::get)
+            TrackList(
+                id = "own/${list.playlistId}",
+                storeId = list.playlistId,
+                name = ListName.Text(list.name),
+                tracks = tracks,
+                missing = list.trackIds.size - tracks.size,
+                folder = list.folder,
+                generated = false,
+                kind = null,
+                plainMood = false,
+                genre = null,
+                decade = 0,
+                // A playlist somebody made and named says what it is in that name (HomeView's stored cards).
+                blurb = null,
+            )
+        }.sortedBy { (it.name as ListName.Text).text.lowercase() }
+
+    /** The desktop's `SmartPlaylists.OwnerOnly`: the kinds it sends for its owner alone. */
+    private val OWNER_ONLY = setOf("RightNow", "OnRepeat", "FavoriteTracks", "FirstListens", "Rediscover", "LovedAndForgotten", "LateNight")
+
+    /** The first [shows] of a run, or the whole run when it is shorter or [shows] is not set. */
+    fun window(ids: List<String>, shows: Int): List<String> =
+        if (shows <= 0 || ids.size <= shows) ids else ids.subList(0, shows)
+
+    /** A decade by its number, a mood by the app's word for it, a genre cut by the title the computer
+     * gave it or its genre. */
+    fun name(kind: String, genre: String?, decade: Int, title: String?): ListName {
+        if (decade > 0) return ListName.Decade(decade)
+        val said = title?.trim().orEmpty()
+        if (genre == null) return ListName.Mood(kind, fallback = said.ifEmpty { kind })
+        if (said.isNotEmpty()) return ListName.Text(said)
+        return if (genre.isNotBlank()) ListName.Text(genre) else ListName.Mood(kind, fallback = kind)
+    }
+}

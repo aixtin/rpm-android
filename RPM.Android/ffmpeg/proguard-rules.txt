@@ -1,0 +1,8 @@
+# Media3's own rules for the FFmpeg extension: the JNI methods, and the renderer's constructor, which
+# DefaultRenderersFactory finds by reflection.
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+-keepclassmembers class androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer {
+    <init>(android.os.Handler, androidx.media3.exoplayer.audio.AudioRendererEventListener, androidx.media3.exoplayer.audio.AudioSink);
+}

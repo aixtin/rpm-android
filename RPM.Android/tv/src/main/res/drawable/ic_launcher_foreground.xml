@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The adaptive icon's foreground: the wordmark 56 dp wide, centred in the 108 dp canvas. Its corners
+     stay inside the 66 dp circle that every launcher mask leaves visible. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Scale 56/507. The translation centres the scaled 56 x 21.5 box and also compensates for the
+         viewBox origin (18, -143). -->
+    <group
+        android:scaleX="0.110454"
+        android:scaleY="0.110454"
+        android:translateX="24.012"
+        android:translateY="59.026">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M109 -143H102C85 -143 73 -136 66 -121V-140H18V0H67V-55C67 -81 76 -94 93 -94C98 -94 103 -94 109 -93ZM207 -34C189 -34 180 -46 180 -71C180 -94 189 -106 207 -106C226 -106 236 -94 236 -71C236 -46 226 -34 207 -34ZM218 3C259 3 284 -29 284 -69C284 -110 260 -143 216 -143C199 -143 187 -137 180 -126V-140H132V52H178V-14C186 -3 199 3 218 3ZM525 -96C525 -127 510 -143 480 -143C462 -143 448 -136 437 -123C427 -136 414 -143 399 -143C383 -143 369 -136 358 -122V-140H312V0H361V-79C361 -96 367 -104 378 -104C389 -104 395 -97 395 -83V0H442V-79C442 -96 448 -104 459 -104C470 -104 476 -97 476 -83V0H525Z" />
+    </group>
+</vector>

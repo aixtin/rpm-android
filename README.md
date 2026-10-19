@@ -7,6 +7,8 @@ Part of [rpm](https://github.com/rpmrpmrpm/rpm). Ideas and questions go to the
 
 ## What is here
 
+The project is in `RPM.Android/`.
+
 | Module | What it is |
 | --- | --- |
 | `core` | Shared by both apps: library, playback (Media3), casting, radio, the rpm server client. |
@@ -20,13 +22,14 @@ You need JDK 17 and the Android SDK (Android Studio installs both). The apps run
 (API 28) or later.
 
 ```
+cd RPM.Android
 ./gradlew :phone:assembleDebug
 ./gradlew :tv:assembleDebug
 ./gradlew test
 ```
 
 Without the FFmpeg libraries the `ffmpeg` module builds empty, and the apps play the formats Android
-supports itself. To include them, build them with `build-android-ffmpeg.sh` and set
+supports itself. To include them, build them with `scripts/build-android-ffmpeg.sh` and set
 `rpm.ffmpegRoot` in `~/.gradle/gradle.properties`.
 
 The local library and playback work without an account. The cloud library, catalogue pages and

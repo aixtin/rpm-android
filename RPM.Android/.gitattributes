@@ -1,0 +1,4 @@
+# gradlew is run by sh, which fails on a CRLF line ending. gradlew.bat is run by cmd.
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

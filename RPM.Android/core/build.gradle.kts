@@ -41,19 +41,32 @@ val iconFontsInSources = file("src/main/res/font/fa_solid.ttf").exists()
 if (!iconFontsInSources) {
     val proFonts = rootDir.resolve("../../rpm-fonts-pro")
     val fontSource = if (proFonts.resolve("fa-solid-900.ttf").exists()) proFonts else file("iconfonts-free")
-    val generated = layout.buildDirectory.dir("generated/iconfonts").get().asFile
 
-    val copyIconFonts by tasks.registering(Copy::class) {
-        from(fontSource) {
-            include("fa-solid-900.ttf", "fa-regular-400.ttf")
-            rename("fa-solid-900.ttf", "fa_solid.ttf")
-            rename("fa-regular-400.ttf", "fa_regular.ttf")
-        }
-        into(generated.resolve("font"))
+    val copyIconFonts by tasks.registering(IconFonts::class) {
+        from.set(fontSource)
     }
 
-    android.sourceSets.getByName("main").res.srcDir(generated)
-    tasks.named("preBuild") { dependsOn(copyIconFonts) }
+    androidComponents.onVariants { variant ->
+        variant.sources.res?.addGeneratedSourceDirectory(copyIconFonts, IconFonts::output)
+    }
+}
+
+// Copies the two icon fonts into a resource folder (font/fa_solid.ttf and font/fa_regular.ttf).
+abstract class IconFonts : DefaultTask() {
+    @get:InputDirectory
+    abstract val from: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val output: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val font = output.get().asFile.resolve("font")
+        font.deleteRecursively()
+        font.mkdirs()
+        from.get().asFile.resolve("fa-solid-900.ttf").copyTo(font.resolve("fa_solid.ttf"))
+        from.get().asFile.resolve("fa-regular-400.ttf").copyTo(font.resolve("fa_regular.ttf"))
+    }
 }
 
 dependencies {

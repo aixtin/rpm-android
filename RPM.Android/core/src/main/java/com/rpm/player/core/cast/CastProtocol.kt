@@ -21,8 +21,8 @@ object CastNamespace {
     const val RECEIVER = "urn:x-cast:com.google.cast.receiver"
     const val MEDIA = "urn:x-cast:com.google.cast.media"
 
-    /** RPM's own namespace, which only RPM's receiver listens on (`rpm.Api/wwwroot/cast/receiver.html`,
-     * `NAMESPACE`). The messages on it are listed in [ControlWords]. */
+    /** RPM's own namespace, which only RPM's receiver listens on (`NAMESPACE` in
+     * `cast/receiver.html` in the rpm repo). The messages on it are listed in [ControlWords]. */
     const val CONTROL = "urn:x-cast:com.rpmrpmrpm.control"
 }
 

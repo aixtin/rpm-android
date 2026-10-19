@@ -6,21 +6,25 @@ import org.junit.Test
 import java.io.File
 
 /**
- * The TV's end of the control channel, held to the receiver page (`rpm.Api/wwwroot/cast/receiver.html`),
+ * The TV's end of the control channel, held to the receiver page (`cast/receiver.html` in the rpm repo),
  * as the desktop's `CastReceiverProtocolTests` holds its own. A word renamed on one side compiles and
  * ships but never arrives: the music plays and the television is wrong, or "next" pressed at the speaker
  * does nothing.
  */
 class ReceiverPageTest {
-    /** The page, found by walking up from the test's directory to the folder that holds `rpm.Api`. */
+    /**
+     * The page, in the rpm repo checked out next to this repo. A checkout that holds every app in one tree
+     * has it in its own `cast` folder.
+     */
     private val page: String by lazy {
         var dir: File? = File(System.getProperty("user.dir") ?: ".").absoluteFile
         while (dir != null) {
-            val candidate = File(dir, "rpm.Api/wwwroot/cast/receiver.html")
-            if (candidate.isFile) return@lazy candidate.readText()
+            for (candidate in listOf(File(dir, "rpm/cast/receiver.html"), File(dir, "cast/receiver.html"))) {
+                if (candidate.isFile) return@lazy candidate.readText()
+            }
             dir = dir.parentFile
         }
-        throw AssertionError("rpm.Api/wwwroot/cast/receiver.html was not found above ${System.getProperty("user.dir")}")
+        throw AssertionError("cast/receiver.html was not found. It is in the rpm repo: check it out next to this repo.")
     }
 
     @Test

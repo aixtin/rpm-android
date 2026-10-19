@@ -16,10 +16,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          path: rpm-android
+      # The Cast tests read cast/receiver.html from the rpm repo, checked out next to this one.
+      - uses: actions/checkout@v7
+        with:
+          repository: rpmrpmrpm/rpm
+          path: rpm
+          # A private repo can only be checked out with the organisation secret SIBLING_REPOS_TOKEN,
+          # a token that can read the rpm repos. A public repo needs no secret.
+          token: ${{ secrets.SIBLING_REPOS_TOKEN || github.token }}
+      # The icon fonts. Without them (a pull request from a fork gets no secrets) the build uses the
+      # free fonts in core/iconfonts-free.
+      - uses: actions/checkout@v7
+        continue-on-error: true
+        with:
+          repository: rpmrpmrpm/rpm-fonts-pro
+          path: rpm-fonts-pro
+          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v6
       - run: ./gradlew test :phone:assembleDebug :tv:assembleDebug
-        working-directory: RPM.Android
+        working-directory: rpm-android/RPM.Android

@@ -291,6 +291,8 @@ vec3 styleRoom(vec2 p)
         """
 const int RIBBONS = ${RoomFigures.RIBBONS};
 const float LIFT = 1.5;
+// How much softer each ribbon's edge is than the background picture's: its falloff 40% wider, crest line with it.
+const float SOFT = 1.4;
 uniform vec4 uRibbonA[RIBBONS];
 uniform vec4 uRibbonB[RIBBONS];
 uniform vec4 uRibbonC[RIBBONS];
@@ -312,7 +314,7 @@ vec3 styleRoom(vec2 p)
         vec4 b = uRibbonB[i];
         vec4 c = uRibbonC[i];
         float curve = a.x + a.y * u + a.z * sin(a.w * u + b.x) + 0.35 * a.z * sin(a.w * 2.3 * u + b.y);
-        float w = max(b.z * (1.0 + b.w * sin(2.8274 * u + c.x)), 0.04);
+        float w = max(b.z * (1.0 + b.w * sin(2.8274 * u + c.x)), 0.04) * SOFT;
         float d = (v - curve) / w;
         float d2 = d * d;
         float g = (exp(-d2) + c.z * exp(-25.0 * d2)) * c.y;

@@ -47,10 +47,20 @@ class RoomFiguresTest {
         assertEquals(1f, at(f.big, 0, 3), 0f)
     }
 
-    @Test fun theBassTurnsYangFaster() {
-        val calm = RoomFigures().apply { advance(1f, 0f, 0f) }
-        val loud = RoomFigures().apply { advance(1f, 1f, 0f) }
+    @Test fun theBassTurnsYangFasterWhileMusicPlays() {
+        // Music playing, with the mids up either way: only the bass differs.
+        val calm = RoomFigures().apply { advance(1f, 0f, 1f) }
+        val loud = RoomFigures().apply { advance(1f, 1f, 1f) }
         assertTrue(loud.spin > calm.spin * 2)
+    }
+
+    @Test fun yangTurnsAtTheMusicPaceWhileMusicPlays() {
+        // Full bass: the speed the levels give, at 40%.
+        val loud = RoomFigures().apply { advance(1f, 1f, 1f) }
+        val unslowed = RoomFigures.YANG_SPIN + RoomFigures.YANG_SPIN_BASS
+        assertEquals(unslowed * RoomFigures.YANG_MUSIC_PACE, loud.spin, 1e-9)
+        // Silence keeps the plain drift.
+        assertEquals(RoomFigures.YANG_SPIN, RoomFigures().apply { advance(1f, 0f, 0f) }.spin, 1e-9)
     }
 
     @Test fun theSmallBallsTrailIsOneStreakWhateverTheSpin() {

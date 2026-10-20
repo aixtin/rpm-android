@@ -77,7 +77,10 @@ class RoomFigures {
 
     /** Moves the three clocks on by [dt] seconds at the speed the levels give them; 0 for a still room. */
     fun advance(dt: Float, bass: Float, mid: Float) {
-        spin += dt * (YANG_SPIN + bass * YANG_SPIN_BASS)
+        // With music, Yang turns at [YANG_MUSIC_PACE] of the speed the levels would give it: at full speed the balls
+        // raced. The pace eases in with the music's level, so silence keeps the plain drift and nothing jumps.
+        val music = ((bass + mid) * 5f).coerceIn(0f, 1f)
+        spin += dt * (YANG_SPIN + bass * YANG_SPIN_BASS) * (1.0 - (1.0 - YANG_MUSIC_PACE) * music)
         flow += dt * (1.0 + bass * 0.6)
         drift += dt * (1.0 + mid * 0.8)
     }
@@ -219,6 +222,8 @@ class RoomFigures {
         const val YANG_SPIN = 0.32
         /** How much faster the bass at full turns it. */
         const val YANG_SPIN_BASS = 0.9
+        /** How fast Yang turns while music plays, as a share of the speed above: 60% slower. */
+        const val YANG_MUSIC_PACE = 0.4
         const val SMALL_RATE = 1.6
         /** Yang's orbits are this much wider than high. */
         const val WIDE = 1.3

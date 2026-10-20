@@ -1,5 +1,21 @@
 package com.rpm.player.tv.ui
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.FlowPreview
+import com.rpm.player.core.library.ArtistArtwork
+import coil3.request.Disposable
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -103,6 +119,9 @@ fun ArtistsScreen(
     val order = state.artistOrder
     val shown = remember(walls, order) { ArtistSort.by(walls.artists, order, byKey) }
     val grid = rememberLazyGridState()
+    // The side in pixels a card draws its photograph at, told by the cards themselves, for the decode ahead.
+    var faceEdge by remember { mutableIntStateOf(0) }
+    FacesAhead(grid, shown, faceEdge, collection, images, artwork)
     val underKeys = rememberUnderKeys(grid, ARTIST_COLUMNS)
     val atTop = remember { derivedStateOf { grid.firstVisibleItemIndex == 0 && grid.firstVisibleItemScrollOffset == 0 } }
     // The screen in front hands the mini player its scroll answer, which it reads live; one kept under it does not
@@ -159,6 +178,7 @@ fun ArtistsScreen(
                         collection = collection,
                         images = images,
                         artwork = artwork,
+                        onEdge = { faceEdge = it },
                         onClick = {
                             state.openedArtist = artist.name
                             onOpenArtist(artist)
@@ -278,18 +298,15 @@ private class LadderLetters(val letters: List<Char>, val starts: List<Int>) {
     companion object {
         val NONE = LadderLetters(emptyList(), emptyList())
 
-        /** Each letter once, where the list first meets it ([ArtistWallItem.initial]); '#' comes last in name order. */
+        /** Each letter once, A to Z and then '#' (every name that starts with a digit, a symbol or a letter outside
+         * A to Z), each pointing at the first act the list files under it ([ArtistWallItem.initial]). The list is
+         * already in that order ([ArtistSort]); the letters are put in it here as well, so the ladder reads in
+         * alphabetical order whatever order it is handed. */
         fun of(shown: List<ArtistWallItem>): LadderLetters {
-            val letters = ArrayList<Char>()
-            val starts = ArrayList<Int>()
-            val seen = HashSet<Char>()
-            shown.forEachIndexed { i, artist ->
-                if (seen.add(artist.initial)) {
-                    letters += artist.initial
-                    starts += i
-                }
-            }
-            return LadderLetters(letters, starts)
+            val first = LinkedHashMap<Char, Int>()
+            shown.forEachIndexed { i, artist -> first.putIfAbsent(artist.initial, i) }
+            val letters = first.keys.sortedWith(compareBy<Char> { it == '#' }.thenBy { it })
+            return LadderLetters(letters, letters.map { first.getValue(it) })
         }
     }
 }
@@ -385,6 +402,7 @@ fun FaceCard(
     artwork: Artwork,
     onClick: () -> Unit,
     modifier: Modifier,
+    onEdge: (Int) -> Unit = {},
 ) {
     val photo = artistPhoto(artist, collection, artwork)
     val context = LocalContext.current
@@ -398,15 +416,83 @@ fun FaceCard(
                 } else {
                     Text(artist.initial.toString(), style = ui(stand, FontWeight.SemiBold), color = STAND_IN)
                 }
+                val edge = with(density) { maxWidth.roundToPx() }
+                SideEffect { onEdge(edge) }
                 if (photo != null) {
-                    val edge = with(density) { maxWidth.roundToPx() }
-                    CoverImage(remember(photo, edge) { ImageRequest.Builder(context).data(photo).size(edge).build() }, images, ContentScale.Crop, Modifier.fillMaxSize(), onShown = {})
+                    // The request the wall decodes ahead with ([FacesAhead]), so a photograph decoded there is found
+                    // in memory and drawn whole from the card's first frame.
+                    CoverImage(remember(photo, edge) { aheadRequest(context, photo, edge, edge) }, images, ContentScale.Crop, Modifier.fillMaxSize(), onShown = {})
                 }
             }
             Text(artist.name, style = ui(CARD_TITLE_TEXT, FontWeight.SemiBold), color = Ink.Card, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 7.px).heightIn(min = 22.s))
         }
     }
 }
+
+/**
+ * The artist wall's decode ahead, as the album carousel's ([AlbumCarousel]): once the wall has come to rest for
+ * [AHEAD_SETTLE_MS], the photographs of the [FACES_AHEAD_ROWS] rows past the last one on screen, and of the row
+ * before the first, are asked for and decoded into memory at the size a card draws them ([edge]), nearest first.
+ * A card scrolled to then draws its photograph whole from its first frame, rather than its letter and then a fade.
+ *
+ * Moving on cancels the decodes not yet done, as [DecodeAhead] does, so a long scroll never queues covers ahead of
+ * the ones on screen. The asks for a photograph's address ([Artwork.of]) are not cancelled: a card on screen may be
+ * waiting on the same ask, and it would be told there is no photograph. At most [FACES_ASKING] are out at once.
+ */
+@OptIn(FlowPreview::class)
+@Composable
+private fun FacesAhead(grid: LazyGridState, shown: List<ArtistWallItem>, edge: Int, collection: Collection, images: ImageLoader, artwork: Artwork) {
+    val context = LocalContext.current
+    val list by rememberUpdatedState(shown)
+    LaunchedEffect(images, edge) {
+        if (edge <= 0) return@LaunchedEffect
+        val asking = Semaphore(FACES_ASKING)
+        var decoding: Job? = null
+        try {
+            snapshotFlow {
+                val seen = grid.layoutInfo.visibleItemsInfo
+                if (seen.isEmpty()) -1 to -1 else seen.first().index to seen.last().index
+            }
+                .debounce(AHEAD_SETTLE_MS)
+                .distinctUntilChanged()
+                .collect { (top, last) ->
+                    decoding?.cancel()
+                    if (last < 0) return@collect
+                    val acts = list
+                    val wanted = ((last + 1)..(last + FACES_AHEAD_ROWS * ARTIST_COLUMNS)) + ((top - 1) downTo (top - ARTIST_COLUMNS))
+                    decoding = launch {
+                        val pending = ArrayList<Disposable>()
+                        try {
+                            wanted.mapNotNull { acts.getOrNull(it) }
+                                .filterNot { ArtistCredit.isVariousArtists(it.name) }
+                                .map { act ->
+                                    async {
+                                        val photo = artwork.peek(act.name).photo() ?: asking.withPermit {
+                                            val album = act.own.firstNotNullOfOrNull { key -> collection.album(key)?.album?.takeIf { it.isNotBlank() } }.orEmpty()
+                                            withContext(NonCancellable) { artwork.of(act.name, album) }.photo()
+                                        }
+                                        photo?.let { pending += images.enqueue(aheadRequest(context, it, edge, edge)) }
+                                    }
+                                }
+                                .awaitAll()
+                            awaitCancellation()
+                        } finally {
+                            pending.forEach { it.dispose() }
+                        }
+                    }
+                }
+        } finally {
+            decoding?.cancel()
+        }
+    }
+}
+
+/** An act's photograph from what [Artwork] answered: the first square picture, else the first wide one. */
+private fun ArtistArtwork?.photo(): String? = this?.thumbs?.firstOrNull() ?: this?.backgrounds?.firstOrNull()
+
+/** How many rows past the last one on screen the wall decodes ahead, and how many photograph asks may be out. */
+private const val FACES_AHEAD_ROWS = 3
+private const val FACES_ASKING = 4
 
 /** The stand-in letter and glyph: `#8CFFFFFF`, as the desktop's. */
 private val STAND_IN = Color(0x8CFFFFFF)

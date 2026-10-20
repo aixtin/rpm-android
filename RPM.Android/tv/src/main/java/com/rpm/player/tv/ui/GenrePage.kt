@@ -98,6 +98,8 @@ fun GenrePage(
     val asked = remember(genre, collection) { GenrePopular.records(genre.albums.mapNotNull { byKey[it] }, collection::playsOf) }
     val songs = remember(asked) { GenrePopular.songs(asked) }
     val popular = rememberPopular(genre to collection, asked, worldPlays) { plays -> GenrePopular.ranked(POPULAR_MOST, songs, plays) }
+    // Whether the page opened before the popular songs were known: only then are they brought in when they come.
+    val popularLate = remember(genre) { popular.isEmpty() }
 
     val spoken = Genres.spoken(genre.name)
     val added = remember(shelves) { shelves.added.mapNotNull { byKey[it] } }
@@ -135,7 +137,7 @@ fun GenrePage(
             ) {
                 if (focusPopular) {
                     item(key = "popular") {
-                        PopularSongs(popular, collection, images, first, actions, menu)
+                        ArrivesLate(popularLate) { PopularSongs(popular, collection, images, first, actions, menu) }
                     }
                 }
                 if (shelves.acts.isNotEmpty()) {

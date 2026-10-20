@@ -1,5 +1,7 @@
 package com.rpm.player.tv.ui
 
+import kotlin.math.roundToInt
+import androidx.compose.ui.layout.layout
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutQuad
@@ -152,6 +154,8 @@ fun ArtistPage(
     val bio = edit?.let { it.description ?: article?.extract }
 
     val popular = rememberPopular(shelves, ArtistPopular.records(shelves.songs), worldPlays) { plays -> ArtistPopular.ranked(POPULAR_MOST, shelves.songs, plays) }
+    // Whether the page opened before the popular songs were known: only then are they brought in when they come.
+    val popularLate = remember(artist) { popular.isEmpty() }
     val computed = remember(artist, walls, collection) { RelatedArtists.of(artist, walls, byKey, collection.lists) }
     val related = remember(computed, edit) { (edit ?: ArtistEdit.NONE).relate(computed, artist, walls) }
     val theirs = remember(shelves) { shelves.songs.mapTo(HashSet()) { it.first.rpmId } }
@@ -201,7 +205,7 @@ fun ArtistPage(
             ) {
                 if (popular.isNotEmpty()) {
                     item(key = "popular") {
-                        PopularSongs(popular, collection, images, first, actions, menu)
+                        ArrivesLate(popularLate) { PopularSongs(popular, collection, images, first, actions, menu) }
                     }
                 }
                 records.forEachIndexed { i, (heading, albums) ->
@@ -596,6 +600,32 @@ internal fun rememberPopular(
 private const val POPULAR_ASKING = 4
 
 /** "140 songs", or "1 song". */
+/**
+ * Content that arrives after the page has opened, brought in the way a late article is ([PageBand]): it fades in over
+ * [BIO_IN_MS] while it rises [BIO_SLIDE] into place, and what is under it glides down to make room, rather than the
+ * row popping in and shoving the records down at once. Content the page opened with is drawn at once.
+ */
+@Composable
+internal fun ArrivesLate(late: Boolean, content: @Composable () -> Unit) {
+    val arrival = remember { Animatable(if (late) 0f else 1f) }
+    LaunchedEffect(Unit) { if (late) arrival.animateTo(1f, tween(BIO_IN_MS, easing = EaseOutQuad)) }
+    val slide = with(LocalDensity.current) { BIO_SLIDE.toPx() }
+    Box(
+        Modifier
+            // The room it takes grows with it, so the rows under it move down over the same time.
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, (placeable.height * arrival.value).roundToInt()) { placeable.place(0, 0) }
+            }
+            .graphicsLayer {
+                alpha = arrival.value
+                translationY = (1f - arrival.value) * slide
+                // Fading a row of covers through an offscreen layer is more than the Amiko's GPU draws in a frame.
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            },
+    ) { content() }
+}
+
 @Composable
 fun songCount(songs: Int): String =
     if (songs == 1) stringResource(R.string.Stats_SongsOne) else stringResource(R.string.Stats_Songs, songs.toString())

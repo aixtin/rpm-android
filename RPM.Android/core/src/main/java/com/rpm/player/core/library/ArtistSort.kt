@@ -43,8 +43,13 @@ object ArtistSort {
 
     private class Seat(val artist: ArtistWallItem, val last: Boolean, val arrived: Long)
 
+    /** By the letter each act files under ([ArtistWall.initial]), A to Z with '#' last, then by name within it. The
+     * letter comes first because the name alone does not keep the letters together: the initial skips a name's
+     * leading punctuation, the collator does not, so "(hed) p.e." files under H but sorts ahead of every A, and the
+     * ladder down the side would run H, A, B... */
     private fun byName(names: Collator): Comparator<Seat> =
         compareBy<Seat> { it.last }
+            .thenBy { it.artist.initial }
             .then { a, b -> names.compare(a.artist.name, b.artist.name) }
             .thenBy { it.artist.name }
 

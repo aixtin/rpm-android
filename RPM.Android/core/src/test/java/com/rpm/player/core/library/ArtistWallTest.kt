@@ -82,6 +82,19 @@ class ArtistWallTest {
         assertEquals(listOf("abba", "Björk", "2Pac"), wall.map { it.name })
     }
 
+    @Test fun aNameLedByPunctuationSortsAmongItsOwnLetter() {
+        val wall = ArtistWall.build(
+            listOf(
+                row("H/a", "(hed) p.e.", "(hed) p.e."),
+                row("A/a", "Air", "Air"),
+                row("H/b", "Haim", "Haim"),
+                row("X/a", "!!!", "!!!"),
+            ),
+        )
+        assertEquals(listOf("Air", "(hed) p.e.", "Haim", "!!!"), wall.map { it.name })
+        assertEquals(listOf('A', 'H', 'H', '#'), wall.map { it.initial })
+    }
+
     @Test fun anInitialFoldsItsAccentAndADigitFilesUnderTheHash() {
         assertEquals('S', ArtistWall.initial("Sigur Rós"))
         assertEquals('O', ArtistWall.initial("Ólafur Arnalds"))

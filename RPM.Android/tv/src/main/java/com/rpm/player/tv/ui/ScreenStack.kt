@@ -181,7 +181,8 @@ private fun Modifier.unplacedScreen(): Modifier = layout { measurable, constrain
     layout(placeable.width, placeable.height) {}
 }
 
-/** How long a screen takes to come up when it opens, or when the screen over it closes. It is short and only
- * the incoming screen fades, with nothing crossfading out under it, because the Amiko's GPU cannot keep up
- * with two whole screens drawn at once. */
-private const val SCREEN_FADE_MS = 180
+/** How long a screen takes to come up when it opens, or when the screen over it closes. Only the incoming
+ * screen fades, with nothing crossfading out under it, because the Amiko's GPU cannot keep up with two whole
+ * screens drawn at once. It was 180 ms, which read as a flash rather than a fade; half as long again reads as
+ * smooth. */
+private const val SCREEN_FADE_MS = 270

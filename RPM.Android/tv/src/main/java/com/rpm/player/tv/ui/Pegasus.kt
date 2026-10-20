@@ -119,7 +119,7 @@ fun PegasusSpread(
 ) {
     val wordsShown = animateFloatAsState(
         if (drawerOpen) 0f else 1f,
-        if (drawerOpen) tween(DRAWER_GLIDE_MS) else tween(BESIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        if (drawerOpen) tween(DRAWER_GLIDE_MS) else tween(LEFT_BACK_MS, easing = QuadInOut),
         label = "words",
     )
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -224,6 +224,10 @@ private const val BESIDE_CENTRE = 0.27f
 private const val BESIDE_LYRICS = 0.52f
 private const val BESIDE_SAFE = 0.05f
 internal const val BESIDE_MS = 450
+
+/** How long the full view's words and keys take to come back once the queue drawer has closed: an even, slow fade.
+ * At [BESIDE_MS] on the lyrics' curve most of the change came in its first moments and read as a jump. */
+private const val LEFT_BACK_MS = 900
 
 /** A track's record, or a station's logo in the sleeve with no record. */
 @Composable

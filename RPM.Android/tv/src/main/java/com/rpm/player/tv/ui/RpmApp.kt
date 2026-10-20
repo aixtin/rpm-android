@@ -487,6 +487,7 @@ fun RpmApp(
                                         nowPlaying = nowPlaying,
                                         images = services.images,
                                         room = room,
+                                        roomStills = services.roomStills,
                                         lrcLib = services.lrcLib,
                                         measuredLyrics = services.measuredLyrics,
                                         backdrop = backdrop,

@@ -68,6 +68,8 @@ import com.rpm.player.core.playback.KeyRules
 import com.rpm.player.core.playback.PlayerAction
 import com.rpm.player.core.playback.perform
 import com.rpm.player.core.room.PLAYER_BRIGHTNESS
+import com.rpm.player.core.room.RoomPalette
+import com.rpm.player.core.room.RoomStills
 import com.rpm.player.core.room.RoomTarget
 import com.rpm.player.core.room.VinylHue
 import kotlinx.coroutines.Dispatchers
@@ -110,6 +112,8 @@ fun PlayerScreen(
     nowPlaying: NowPlaying?,
     images: ImageLoader,
     room: RoomTarget,
+    /** Draws the still of the room that the queue drawer's glass frosts ([DrawerRoom]). */
+    roomStills: RoomStills,
     lrcLib: LrcLib,
     /** The word timing desktops measured, read per track for karaoke. */
     measuredLyrics: com.rpm.player.core.lyrics.MeasuredLyrics,
@@ -316,6 +320,9 @@ fun PlayerScreen(
     // off the right edge of the screen. The room stays put behind the drawer's smoked glass, which shows it moving.
     // While the drawer is up, the pushed picture is recorded for its glass to blur ([rememberDrawerPicture]).
     val drawerPicture = rememberDrawerPicture()
+    // The room under the drawer, as a blurred still of it ([DrawerRoom]): the room's style is read from the room as the
+    // drawer opens, which recomposes this; it changes only in the settings, which the open drawer is not over.
+    val drawerRoom = remember(roomStills) { DrawerRoom(roomStills) }
     val push by animateFloatAsState(if (queueOpen) PICTURE_PUSH else 0f, tween(DRAWER_GLIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "push")
 
     // Passed down as a function and read in the keys' layer, so the 140 and 420 ms fades redraw the keys
@@ -456,6 +463,8 @@ fun PlayerScreen(
                 controller,
                 images,
                 drawerPicture,
+                drawerRoom,
+                DrawerRoom.Look(reading?.room ?: RoomPalette.FALLBACK, room.style, if (spread) 0f else 1f),
                 open = queueOpen,
                 onClose = {
                     // Closes only once: a Back that reaches the drawer while it slides out does nothing more.

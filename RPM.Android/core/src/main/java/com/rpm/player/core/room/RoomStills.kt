@@ -47,11 +47,13 @@ class RoomStills(private val tap: AudioTap) {
     private val thread = HandlerThread("rpm.room-still").apply { start() }
     private val dispatcher = Handler(thread.looper).asCoroutineDispatcher()
 
-    /** The still room in [palette] and [style], [dim]med, [width] by [height]; null when no GL context could be made. */
-    suspend fun picture(palette: RoomPalette, style: RoomStyle, width: Int, height: Int, dim: Float): Bitmap? =
-        withContext(dispatcher) { draw(palette, style, width, height, dim) }
+    /** The still room in [palette] and [style], [dim]med, [width] by [height]; null when no GL context could be made.
+     * [bare] is [RoomTarget.bare]: 0 for the player's spread view, which dims the left of its room, so a picture of
+     * the player's room (the queue drawer's glass) is dimmed where the room behind it is. */
+    suspend fun picture(palette: RoomPalette, style: RoomStyle, width: Int, height: Int, dim: Float, bare: Float = 1f): Bitmap? =
+        withContext(dispatcher) { draw(palette, style, width, height, dim, bare) }
 
-    private fun draw(palette: RoomPalette, style: RoomStyle, width: Int, height: Int, dim: Float): Bitmap? {
+    private fun draw(palette: RoomPalette, style: RoomStyle, width: Int, height: Int, dim: Float, bare: Float): Bitmap? {
         val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         val version = IntArray(2)
         // Not terminated afterwards: the display is the process's, and the window's renderer uses it too.
@@ -75,8 +77,10 @@ class RoomStills(private val tap: AudioTap) {
                 it.palette = palette
                 it.style = style
                 it.still = true
+                it.bare = bare
             }
             val renderer = RoomRenderer(tap, target, RoomTuning.scale, android.util.Size(width, height), measure = false, dim = dim)
+            renderer.settle()
             renderer.onSurfaceCreated(null, null)
             renderer.onSurfaceChanged(null, width, height)
             renderer.onDrawFrame(null)

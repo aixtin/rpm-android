@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -49,6 +50,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -58,10 +62,20 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.media3.common.Player
 import coil3.ImageLoader
 import com.rpm.player.core.R
 import com.rpm.player.core.library.Cover
+import com.rpm.player.core.graphics.boxBlur
+import com.rpm.player.core.room.PLAYER_BRIGHTNESS
+import com.rpm.player.core.room.RoomPalette
+import com.rpm.player.core.room.RoomStills
+import com.rpm.player.core.room.RoomStyle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /**
  * One row of the queue as the controller holds it. [key] is the media id and which copy of it this is
@@ -96,7 +110,7 @@ private fun Player.holds(index: Int, row: QueueRow): Boolean =
 /**
  * What the drawer's glass blurs: the player's picture (the record, the lines, the keys), recorded where it is drawn
  * ([backdropSource] on the pushed box, while the drawer is up). Its ground is clear, so where the picture is empty
- * the room's surface behind the window shows through the glass as it moves.
+ * the blurred still of the room under it ([DrawerRoom]) shows through.
  */
 @Composable
 fun rememberDrawerPicture(): Backdrop {
@@ -105,11 +119,56 @@ fun rememberDrawerPicture(): Backdrop {
 }
 
 /**
+ * The room under the drawer's glass, frosted: a still of the player's room ([RoomStills]), shrunk to a sixth and
+ * blurred once as deep as the live glass ([DEEP_RADIUS], about the side menu's 35 px), drawn opaque in the card
+ * under the blurred picture. The room itself is a surface behind the window, which no layer can read on Android 9
+ * to 11, so through the drawer's translucent smoke it showed sharp and moving; on home the glass is frosted because
+ * the screens there stand on a still picture of the room, which can be blurred. The still does not move with the
+ * room, which a blur this deep hides.
+ *
+ * Held by the player, not the drawer, so a drawer opened again over the same room has it at once. It is made again
+ * only when what it shows changes ([Look]): another track's colours, another style, the spread view's dimmed left.
+ * Making it costs one picture of the room in the stills' own GL context, off the main thread, as home's still does;
+ * drawing it costs one small bitmap scaled over the card, on frames the drawer draws anyway.
+ */
+@Stable
+class DrawerRoom(private val stills: RoomStills) {
+    /** What the still is of: the room's [palette], [style] and [bare] ([com.rpm.player.core.room.RoomTarget]). */
+    data class Look(val palette: RoomPalette, val style: RoomStyle, val bare: Float)
+
+    /** The blurred still at a sixth of the player's size; null before the first. Main thread. */
+    var blurred by mutableStateOf<ImageBitmap?>(null)
+        private set
+    private var madeFor: Pair<Look, IntSize>? = null
+
+    /** Makes the still for [look] at [width] by [height], the player's pixels, unless it is made already. The last
+     * still stays up until the new one is made. Cancelling it leaves the last still in place. */
+    suspend fun make(look: Look, width: Int, height: Int) {
+        val key = look to IntSize(width, height)
+        if (width <= 0 || height <= 0 || madeFor == key) return
+        // Under the player the room is drawn at PLAYER_BRIGHTNESS. The picture setting's light is not put in: the
+        // player's layer lays it on everything drawn in it, this still too ([DrawnAt]).
+        val full = stills.picture(look.palette, look.style, width, height, dim = PLAYER_BRIGHTNESS, bare = look.bare) ?: return
+        blurred = withContext(Dispatchers.Default) {
+            val small = android.graphics.Bitmap.createScaledBitmap(full, (width / ROOM_SHRINK).coerceAtLeast(1), (height / ROOM_SHRINK).coerceAtLeast(1), true)
+            full.recycle()
+            boxBlur(small, DEEP_RADIUS)
+            small.asImageBitmap()
+        }
+        madeFor = key
+    }
+}
+
+/** The drawer's still of the room is kept at this share of the player's size, as the panels' backdrop is. */
+private const val ROOM_SHRINK = 6
+
+/**
  * Pegasus's queue drawer (PegasusChrome.xaml, the drawer), as a card of the side menu's smoked glass ([SideMenu]:
  * corner 7·s, 10·s in from the left, top and bottom, [Ink.Smoke] and its rim, dimmed by [GLASS_DIM]) down the left of
- * the player, 0.36 of the screen wide. The room stays where it is behind it, and the glass shows it moving: the room
- * is a surface behind the window, which the glass lets through, and the picture pushed aside ([picture]) is blurred
- * under the glass on every frame ([drawLiveBlur]), as the side menu blurs the screens.
+ * the player, 0.36 of the screen wide. The room stays where it is behind it, frosted: the room is a surface behind
+ * the window, which the glass cannot blur, so the card covers it with a blurred still of it ([room], [roomLook]),
+ * and the picture pushed aside ([picture]) is blurred over that on every frame ([drawLiveBlur]), as the side menu
+ * blurs the screens.
  *
  * It holds the queue, with the playing row lit and focused when the drawer opens. OK plays a row. A held OK or the
  * Menu key opens the row's menu (Play, Play next, Move, Remove from queue). Move lifts the row: Up and Down carry it
@@ -134,7 +193,7 @@ fun rememberDrawerPicture(): Backdrop {
  * to its row.
  */
 @Composable
-fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, open: Boolean, onClose: () -> Unit, onGone: () -> Unit) {
+fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, room: DrawerRoom, roomLook: DrawerRoom.Look, open: Boolean, onClose: () -> Unit, onGone: () -> Unit) {
     var rows by remember { mutableStateOf(readQueue(player)) }
     var playing by remember { mutableStateOf(player.currentMediaItemIndex) }
     // The songs and the headings over the added ones, in the order they are listed.
@@ -272,7 +331,17 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, open: Bo
         if (!open) gone()
     }
     val chain = rememberBlurChain()
+    // The still fades in over the sharp room when it is made after the drawer has begun to slide in: on the first
+    // opening, or on a new track's colours. Drawn at once when it is ready.
+    val stillIn = remember { androidx.compose.animation.core.Animatable(if (room.blurred != null) 1f else 0f) }
+    LaunchedEffect(room.blurred != null) {
+        if (room.blurred != null) stillIn.animateTo(1f, androidx.compose.animation.core.tween(ROOM_FADE_MS))
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
+        // The player's own size, in the pixels it is drawn at, which the card's offsets below are in too.
+        val playerWide = constraints.maxWidth
+        val playerHigh = constraints.maxHeight
+        LaunchedEffect(roomLook, playerWide, playerHigh) { room.make(roomLook, playerWide, playerHigh) }
         // As wide as the desktop's drawer: 0.36 of the screen, limited to 280 to 460 drawer units, the side menu's
         // margin included, so the picture pushed by half of it ([PICTURE_PUSH]) is centred in what is left.
         val width = (maxWidth * 0.36f).coerceIn(280.ds, 460.ds)
@@ -309,12 +378,24 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, open: Bo
                     true
                 }
                 .clip(shape)
-                // The picture under the card, blurred, where the card stands in the player: the card is laid out at
-                // the margin and slid by its layer, which the blur must follow, so it reads the slide itself and is
-                // drawn again on every frame of it. The picture is recorded at the player's own origin, as the drawer is.
+                // The room's blurred still, then the picture under the card, blurred, both where the card stands in
+                // the player: the card is laid out at the margin and slid by its layer, which they must follow, so it
+                // reads the slide itself and is drawn again on every frame of it. The picture is recorded at the
+                // player's own origin, as the drawer is, and the still is the player's size.
                 .drawBehind {
                     val margin = DRAWER_MARGIN.toPx()
                     val slide = -(1f - enter.value) * (size.width + margin)
+                    room.blurred?.let { still ->
+                        drawImage(
+                            still,
+                            srcOffset = IntOffset.Zero,
+                            srcSize = IntSize(still.width, still.height),
+                            dstOffset = IntOffset(-(margin + slide).roundToInt(), -margin.roundToInt()),
+                            dstSize = IntSize(playerWide, playerHigh),
+                            alpha = stillIn.value,
+                            filterQuality = FilterQuality.Low,
+                        )
+                    }
                     drawLiveBlur(chain, picture, Offset(margin + slide, margin), local = 1f)
                 },
         ) {
@@ -492,6 +573,9 @@ private val DRAWER_RIM = Brush.verticalGradient(0f to Ink.SmokeRimTop, 0.5f to I
 
 /** How long the drawer takes to slide in or out. The player's push of the picture takes the same time. */
 const val DRAWER_GLIDE_MS = 250
+
+/** How long the room's blurred still takes to fade in over the sharp room when it comes after the drawer. */
+private const val ROOM_FADE_MS = 200
 
 /** Scrolls the list just far enough that the item at [index] is completely on screen. */
 private suspend fun LazyListState.keepInView(index: Int) {

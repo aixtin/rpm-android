@@ -137,6 +137,15 @@ class RoomRenderer(
         val arrays = IntArray(arrayNames.size) { at(arrayNames[it]) }
     }
 
+    /** Starts [RoomTarget.bare], [RoomTarget.push] and [RoomTarget.brightness] where the target has them, not
+     * eased from the defaults: a picture of the room ([RoomStills]) is one frame, which an easing would leave at
+     * the start. GL thread, before the first frame. */
+    internal fun settle() {
+        bare = target.bare
+        push = target.push
+        brightness = target.brightness
+    }
+
     /** Whether a frame drawn now would differ from the last one. Always true for a live room. Called by
      * the pacer on the main thread once per display frame. */
     fun wantsFrame(): Boolean {

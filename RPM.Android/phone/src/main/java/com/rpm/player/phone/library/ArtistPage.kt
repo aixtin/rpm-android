@@ -227,7 +227,9 @@ fun ArtistPage(
                 }
                 shelf(R.string.Artists_Albums, shelves.records, collection, images, sleeve, onOpen)
                 shelf(R.string.Artists_Collaborations, shelves.together, collection, images, sleeve, onOpen)
+                shelf(R.string.Artists_Eps, shelves.eps, collection, images, sleeve, onOpen)
                 shelf(R.string.Artists_LiveAlbums, shelves.live, collection, images, sleeve, onOpen)
+                shelf(R.string.Artists_Mixtapes, shelves.mixtapes, collection, images, sleeve, onOpen)
                 shelf(R.string.Artists_Soundtracks, shelves.soundtracks, collection, images, sleeve, onOpen)
                 shelf(R.string.Artists_Compilations, shelves.compilations, collection, images, sleeve, onOpen)
                 shelf(R.string.Artists_Singles, shelves.singles, collection, images, sleeve, onOpen)

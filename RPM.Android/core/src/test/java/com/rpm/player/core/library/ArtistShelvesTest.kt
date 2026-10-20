@@ -11,6 +11,32 @@ class ArtistShelvesTest {
     private fun album(key: String, name: String, year: Int = 0, artist: String = "Queen", trackArtist: String = artist) =
         CloudAlbum(key, name, artist, listOf(CloudTrack(rpmId = "$key/1", artist = trackArtist, tags = CloudTrackTags(year = year))))
 
+    private fun typed(key: String, name: String, vararg types: String?) =
+        CloudAlbum(key, name, "Queen", types.mapIndexed { i, type -> CloudTrack(rpmId = "$key/$i", artist = "Queen", tags = CloudTrackTags(releaseType = type)) })
+
+    @Test fun aSetReleaseTypeWinsOverTheNameAndEpsAndMixtapesHaveShelves() {
+        val albums = listOf(
+            typed("through", "Live Through This", "Album"),
+            typed("ep", "Five Live", "Ep"),
+            typed("tape", "Street Sounds", "Mixtape"),
+            typed("guess", "Live at Wembley", null),
+        ).associateBy { it.key }
+        val queen = ArtistWallItem("Queen", albums = albums.keys.toList(), together = emptyList(), appearances = emptyList(), tracks = 4)
+
+        val shelves = ArtistShelves.of(queen, albums)
+
+        assertEquals(listOf("through"), shelves.records.map { it.key })
+        assertEquals(listOf("ep"), shelves.eps.map { it.key })
+        assertEquals(listOf("tape"), shelves.mixtapes.map { it.key })
+        assertEquals(listOf("guess"), shelves.live.map { it.key })
+    }
+
+    @Test fun mostOfARecordsTracksDecideItsType() {
+        assertEquals(ReleaseType.Ep, ReleaseType.shelfOf(typed("a", "A", "Ep", "Ep", "single")))
+        assertEquals(ReleaseType.Single, ReleaseType.shelfOf(typed("b", "B - Single", null, "nonsense")))
+        assertEquals(ReleaseType.Album, ReleaseType.shelfOf(typed("c", "C", null)))
+    }
+
     @Test fun eachRecordLandsOnOneShelfByItsName() {
         val albums = listOf(
             album("opera", "A Night at the Opera"),

@@ -24,3 +24,37 @@ object AlbumKind {
         RegexOption.IGNORE_CASE,
     )
 }
+
+/** What kind of release a record is: the shelf it stands on on an artist's page. The desktop's `ReleaseType`; the
+ * names are its stored ones (`ReleaseTypes.ToStored`), which the cloud's listing carries as `releaseType`. */
+enum class ReleaseType {
+    Album, Ep, Single, Live, Mixtape, Compilation, Soundtrack;
+
+    companion object {
+        /** The type a stored name means, or null for a name that is none of them. Any case. */
+        fun fromStored(stored: String?): ReleaseType? =
+            if (stored.isNullOrBlank()) null else entries.firstOrNull { it.name.equals(stored.trim(), ignoreCase = true) }
+
+        /** What the record's name suggests, in the desktop's order (`ReleaseTypes.FromTitle`): single, live,
+         * soundtrack, compilation. Null where it suggests nothing. */
+        fun fromTitle(title: String?): ReleaseType? = when {
+            AlbumKind.isSingle(title) -> Single
+            AlbumKind.isLive(title) -> Live
+            AlbumKind.isSoundtrack(title) -> Soundtrack
+            AlbumKind.isCompilation(title) -> Compilation
+            else -> null
+        }
+
+        /**
+         * The shelf a record goes on: the type its tracks carry, else what its name suggests, else an album. A set
+         * type always wins, which is the point of setting it: "Live Through This" set to Album leaves the live shelf.
+         * The desktop's `ReleaseTypes.ShelfOf`. Where the tracks disagree, most of them decide.
+         */
+        fun shelfOf(album: CloudAlbum): ReleaseType {
+            val set = album.tracks.mapNotNull { fromStored(it.tags?.releaseType) }
+                .groupingBy { it }.eachCount()
+                .maxWithOrNull(compareBy<Map.Entry<ReleaseType, Int>> { it.value }.thenByDescending { it.key.ordinal })?.key
+            return set ?: fromTitle(album.album) ?: Album
+        }
+    }
+}

@@ -7,14 +7,15 @@ import java.text.Collator
  * An artist's records sorted onto the shelves their page shows, and every song of theirs. The rule is the
  * same as the iOS app's `ArtistShelves.swift` and the desktop's `RPM.Core/Library/ArtistShelves.cs`.
  *
- * One record, one shelf; where a name answers more than once the order decides: single, then live, then
- * soundtrack, then compilation. Appearances are not split by kind. Each shelf is newest year first,
- * undated last, then by name.
+ * One record, one shelf: the type the record's files carry, else what its name suggests ([ReleaseType.shelfOf]).
+ * Appearances are not split by kind. Each shelf is newest year first, undated last, then by name.
  */
 class ArtistShelves(
     val records: List<CloudAlbum>,
     val together: List<CloudAlbum>,
+    val eps: List<CloudAlbum>,
     val live: List<CloudAlbum>,
+    val mixtapes: List<CloudAlbum>,
     val soundtracks: List<CloudAlbum>,
     val compilations: List<CloudAlbum>,
     val singles: List<CloudAlbum>,
@@ -28,32 +29,24 @@ class ArtistShelves(
             fun found(keys: List<String>) = keys.mapNotNull { albums[it] }
             val own = found(artist.own)
 
-            val singles = own.filter { AlbumKind.isSingle(it.album) }
-            val live = own.filter { AlbumKind.isLive(it.album) && !AlbumKind.isSingle(it.album) }
-            val soundtracks = own.filter {
-                AlbumKind.isSoundtrack(it.album) && !AlbumKind.isSingle(it.album) && !AlbumKind.isLive(it.album)
-            }
-            val compilations = own.filter {
-                AlbumKind.isCompilation(it.album) && !AlbumKind.isSingle(it.album) && !AlbumKind.isLive(it.album) &&
-                    !AlbumKind.isSoundtrack(it.album)
-            }
-            val records = newestFirst(found(artist.albums).filter(::isOrdinary))
-            val together = newestFirst(found(artist.together).filter(::isOrdinary))
+            fun kind(type: ReleaseType) = newestFirst(own.filter { ReleaseType.shelfOf(it) == type })
+            val eps = kind(ReleaseType.Ep)
+            val live = kind(ReleaseType.Live)
+            val mixtapes = kind(ReleaseType.Mixtape)
+            val soundtracks = kind(ReleaseType.Soundtrack)
+            val compilations = kind(ReleaseType.Compilation)
+            val singles = kind(ReleaseType.Single)
+            val records = newestFirst(found(artist.albums).filter { ReleaseType.shelfOf(it) == ReleaseType.Album })
+            val together = newestFirst(found(artist.together).filter { ReleaseType.shelfOf(it) == ReleaseType.Album })
             val appearances = newestFirst(found(artist.appearances))
 
-            val inPageOrder = records + together + newestFirst(live) + newestFirst(soundtracks) + newestFirst(compilations) + newestFirst(singles)
+            // The desktop's ArtistShelves.OwnInPageOrder.
+            val inPageOrder = records + together + eps + live + mixtapes + soundtracks + compilations + singles
             val songs = inPageOrder.flatMap { album -> album.tracks.map { it to album } } +
                 appearances.flatMap { album -> album.tracks.filter { ArtistWall.names(it.artist, artist.name) }.map { it to album } }
 
-            return ArtistShelves(
-                records, together, newestFirst(live), newestFirst(soundtracks), newestFirst(compilations), newestFirst(singles),
-                appearances, songs,
-            )
+            return ArtistShelves(records, together, eps, live, mixtapes, soundtracks, compilations, singles, appearances, songs)
         }
-
-        private fun isOrdinary(album: CloudAlbum): Boolean =
-            !AlbumKind.isLive(album.album) && !AlbumKind.isSingle(album.album) &&
-                !AlbumKind.isSoundtrack(album.album) && !AlbumKind.isCompilation(album.album)
 
         private fun newestFirst(albums: List<CloudAlbum>): List<CloudAlbum> {
             val names = Collator.getInstance().apply { strength = Collator.SECONDARY }

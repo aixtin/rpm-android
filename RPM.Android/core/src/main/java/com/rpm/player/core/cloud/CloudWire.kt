@@ -51,6 +51,9 @@ data class CloudTrackTags(
     val loudnessLufs: Double = 0.0,
     /** True peak as a linear amplitude, where 1.0 is full scale. 0 if unknown. */
     val truePeak: Double = 0.0,
+    /** What kind of release the record is, as the listener or the file set it ("Album", "Ep", "Live"...), or null
+     * where nobody has said. See [com.rpm.player.core.library.ReleaseType]. */
+    val releaseType: String? = null,
 )
 
 @Serializable

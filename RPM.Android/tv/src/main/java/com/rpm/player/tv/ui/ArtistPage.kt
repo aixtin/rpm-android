@@ -162,8 +162,10 @@ fun ArtistPage(
     val records = remember(shelves) {
         listOf(
             R.string.Artists_Albums to shelves.records,
+            R.string.Artists_Eps to shelves.eps,
             R.string.Artists_Singles to shelves.singles,
             R.string.Artists_LiveAlbums to shelves.live,
+            R.string.Artists_Mixtapes to shelves.mixtapes,
             R.string.Artists_Compilations to shelves.compilations,
             R.string.Artists_Collaborations to shelves.together,
             R.string.Artists_Soundtracks to shelves.soundtracks,

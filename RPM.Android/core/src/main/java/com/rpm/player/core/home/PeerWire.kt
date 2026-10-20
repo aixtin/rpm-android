@@ -3,6 +3,8 @@ package com.rpm.player.core.home
 import kotlinx.serialization.Serializable
 import java.security.MessageDigest
 import java.util.Base64
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * The encodings of the sharing protocol. They must match `RPM.Core/Sharing` on the desktop
@@ -10,9 +12,12 @@ import java.util.Base64
  * padding.
  */
 object PeerWire {
-    const val VERSION = 3
+    const val VERSION = 4
     const val SERVICE_TYPE = "_rpm._tcp."
     const val SESSION_PURPOSE = "rpm-share-session"
+
+    /** Where a computer serves a track's bytes. A ticket is made over this route and the track's id. */
+    const val TRACK_ROUTE = "/rpm/track/"
 
     fun toBase64Url(data: ByteArray): String = Base64.getUrlEncoder().withoutPadding().encodeToString(data)
 
@@ -27,14 +32,25 @@ object PeerWire {
      * DER), 26 characters, upper case. */
     fun idFor(publicKey: ByteArray): String = base32(sha256(publicKey).copyOf(16))
 
-    /** An account's public short form: base32 of the first 12 bytes of SHA-256 of the user id, or empty
-     * when signed out. Computers compare it to tell their owner's devices from a friend's. */
-    fun accountFingerprint(userId: String?): String =
-        if (userId.isNullOrBlank()) "" else base32(sha256(userId.toByteArray(Charsets.UTF_8)).copyOf(12))
+    /** The text a session signature covers: the server's id exactly as it spells it, the challenge, and the
+     * account this device is signed into (the user id, or empty). The account is said only here, inside the
+     * signature, to a computer whose key this device has pinned. */
+    fun sessionText(serverDeviceId: String, challenge: String, account: String): ByteArray =
+        "$SESSION_PURPOSE\n$serverDeviceId\n$challenge\n$account".toByteArray(Charsets.UTF_8)
 
-    /** The text a session signature covers. The server's id exactly as it spells it. */
-    fun sessionText(serverDeviceId: String, challenge: String): ByteArray =
-        "$SESSION_PURPOSE\n$serverDeviceId\n$challenge".toByteArray(Charsets.UTF_8)
+    /** The public name of a session token in a media URL: the first 16 bytes of SHA-256, base64url. The
+     * desktop's `PeerSessions.Handle`. */
+    fun mediaHandle(token: String): String =
+        toBase64Url(sha256("rpm-media-handle\n$token".toByteArray(Charsets.UTF_8)).copyOf(16))
+
+    /** What a media URL carries in place of the token: the first 16 bytes of HMAC-SHA256, keyed with the
+     * token, over the route and the unescaped id. It opens that one route and id, and nothing else. The
+     * desktop's `PeerSessions.Ticket`. */
+    fun mediaTicket(token: String, route: String, id: String): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(token.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        return toBase64Url(mac.doFinal("rpm-media\n$route$id".toByteArray(Charsets.UTF_8)).copyOf(16))
+    }
 
     private const val ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
@@ -102,7 +118,7 @@ object PeerWire {
 // The wire types, with the server's camelCase names.
 
 @Serializable
-data class PairRequest(val version: Int, val publicKey: String, val name: String, val face: String, val account: String, val nonce: String)
+data class PairRequest(val version: Int, val publicKey: String, val name: String, val face: String, val nonce: String)
 
 @Serializable
 data class PairStatus(val state: String = "", val rev: Int = 0, val triesLeft: Int = 0, val expiresIn: Int = 0)
@@ -113,7 +129,6 @@ data class PairOffer(
     val name: String = "",
     val face: String = "",
     val publicKey: String = "",
-    val account: String = "",
     val id: String = "",
     val status: PairStatus = PairStatus(),
 )
@@ -128,13 +143,13 @@ data class PairId(val id: String)
 data class SessionChallenge(val challenge: String = "", val expiresIn: Int = 0)
 
 @Serializable
-data class SessionRedeem(val publicKey: String, val challenge: String, val signature: String)
+data class SessionRedeem(val publicKey: String, val challenge: String, val signature: String, val account: String)
 
 @Serializable
 data class SessionGrant(val token: String = "", val expiresIn: Int = 0, val kind: Int = 0)
 
 @Serializable
-data class PeerHello(val version: Int = 0, val deviceId: String = "", val name: String = "", val publicKey: String = "", val account: String = "", val trackCount: Int = 0)
+data class PeerHello(val version: Int = 0, val deviceId: String = "", val name: String = "", val publicKey: String = "", val trackCount: Int = 0)
 
 /** One track in a computer's catalogue (`PeerTrack`); only the fields the TV reads. */
 @Serializable

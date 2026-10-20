@@ -16,13 +16,6 @@ class PeerWireTest {
     }
 
     @Test
-    fun `an account fingerprint is base32 of the first 12 bytes of the user id's SHA-256`() {
-        assertEquals("CYX35Q9479VVA3ZQEYN0", PeerWire.accountFingerprint("1245d484-d071-70ea-e9d3-e196ee969043"))
-        assertEquals("", PeerWire.accountFingerprint("  "))
-        assertEquals("", PeerWire.accountFingerprint(null))
-    }
-
-    @Test
     fun `base64url has no padding and no plus or slash, and refuses what is not base64url`() {
         assertEquals("-_8AAQI", PeerWire.toBase64Url(byteArrayOf(-5, -1, 0, 1, 2)))
         assertArrayEquals(byteArrayOf(-5, -1, 0, 1, 2), PeerWire.fromBase64Url("-_8AAQI"))
@@ -42,7 +35,14 @@ class PeerWireTest {
     }
 
     @Test
-    fun `the session text is the purpose, the server's id and the challenge on three lines`() {
-        assertEquals("rpm-share-session\nB3998PDJ2C52W58JABA0HEAYDM\nabc", PeerWire.sessionText("B3998PDJ2C52W58JABA0HEAYDM", "abc").toString(Charsets.UTF_8))
+    fun `the session text is the purpose, the server's id, the challenge and the account on four lines`() {
+        assertEquals("rpm-share-session\nSERVER\nCH\nuser-7", PeerWire.sessionText("SERVER", "CH", "user-7").toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun `handles and tickets match the desktop`() {
+        // The same values as PeerSessionsTests.Handles_and_tickets_match_the_phones on the desktop.
+        assertEquals("ufGG_y6PQoD1A0zS7jm0xg", PeerWire.mediaHandle("token-1"))
+        assertEquals("pfexHfz9I4_UxxVAiaRSMw", PeerWire.mediaTicket("token-1", "/rpm/track/", "abc"))
     }
 }

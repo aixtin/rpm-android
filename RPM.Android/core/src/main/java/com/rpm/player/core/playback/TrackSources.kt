@@ -14,6 +14,7 @@ import com.rpm.player.core.home.Computers
 import com.rpm.player.core.home.HomeCatalogs
 import com.rpm.player.core.home.PeerRefused
 import com.rpm.player.core.home.PeerTrack
+import com.rpm.player.core.home.PeerWire
 import com.rpm.player.core.net.escapeSegment
 import kotlinx.coroutines.runBlocking
 import java.io.IOException
@@ -72,7 +73,11 @@ class TrackSources(
                 // track over from the cloud.
                 val computer = computers.usable(source.key) ?: throw IOException("computer ${source.key} is away")
                 val token = runBlocking { computers.token(computer) }
-                computer.base + "/rpm/track/" + escapeSegment(ref.rpmId) + "?t=" + Uri.encode(token)
+                // A ticket for this one track, not the token: the player does not pin the computer's key, so
+                // this URL is what someone on the network could read (PeerWire.mediaTicket).
+                computer.base + PeerWire.TRACK_ROUTE + escapeSegment(ref.rpmId) +
+                    "?s=" + Uri.encode(PeerWire.mediaHandle(token)) +
+                    "&t=" + Uri.encode(PeerWire.mediaTicket(token, PeerWire.TRACK_ROUTE, ref.rpmId))
             }
             TrackSource.Cloud -> streamLinks.resolveBlocking(ref, kilobits = PlaybackService.STREAM_KILOBITS)
         }

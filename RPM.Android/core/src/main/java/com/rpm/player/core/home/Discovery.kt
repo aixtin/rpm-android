@@ -23,21 +23,20 @@ data class FoundComputer(
     val address: String,
     val port: Int,
     val publicKey: ByteArray,
-    val account: String,
 ) {
     val key: String get() = deviceId.uppercase()
     val base: String get() = "https://$address:$port"
 
     override fun equals(other: Any?): Boolean =
         other is FoundComputer && deviceId == other.deviceId && name == other.name && address == other.address &&
-            port == other.port && account == other.account && publicKey.contentEquals(other.publicKey)
+            port == other.port && publicKey.contentEquals(other.publicKey)
 
     override fun hashCode(): Int = deviceId.hashCode() * 31 + port
 }
 
 /**
  * Computers that share their library on the network, found from `_rpm._tcp` beacons, as `PeerBeacon` reads
- * them. `v` must be 3, `k` is the key (base64url SubjectPublicKeyInfo), and `id` must be the id that the key
+ * them. `v` must be 4, `k` is the key (base64url SubjectPublicKeyInfo), and `id` must be the id that the key
  * gives, otherwise the beacon is dropped. A computer's port changes whenever its server restarts, so a new
  * connection must use the latest resolved address. Each address is pinned to its key.
  *
@@ -97,7 +96,8 @@ class Discovery(context: Context, private val trust: PeerTrust, private val scop
         if (!id.equals(PeerWire.idFor(key), ignoreCase = true)) return null
         @Suppress("DEPRECATION")
         val address = (resolved.host as? Inet4Address)?.hostAddress ?: return null
-        val name = text["d"]?.takeIf { it.isNotBlank() } ?: text["n"]?.takeIf { it.isNotBlank() } ?: id
-        return info.serviceName to FoundComputer(id, name, address, resolved.port, key, text["a"].orEmpty())
+        // The beacon names no person and no account, only the machine.
+        val name = text["n"]?.takeIf { it.isNotBlank() } ?: id
+        return info.serviceName to FoundComputer(id, name, address, resolved.port, key)
     }
 }

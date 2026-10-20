@@ -118,7 +118,6 @@ class Computers(
                         publicKey = PeerWire.toBase64Url(me.publicKey),
                         name = tvName,
                         face = "",
-                        account = PeerWire.accountFingerprint(auth.session.value?.userId),
                         nonce = PeerWire.toBase64Url(ByteArray(16).also(SecureRandom()::nextBytes)),
                     )),
                     PairOffer.serializer(),
@@ -257,10 +256,13 @@ class Computers(
         val me = identity()
         val challenge = get(computer.base + "/rpm/session", SessionChallenge.serializer(), token = null)
             ?: throw IOException("no challenge")
-        val signature = me.sign(PeerWire.sessionText(computer.deviceId, challenge.challenge))
+        // The account goes inside the signature. It tells the computer whether this TV is one of its owner's own
+        // devices, and nothing on the network says so before the key is proved.
+        val account = auth.session.value?.userId.orEmpty()
+        val signature = me.sign(PeerWire.sessionText(computer.deviceId, challenge.challenge, account))
         val grant = post(
             computer.base + "/rpm/session",
-            WireJson.encodeToString(SessionRedeem.serializer(), SessionRedeem(PeerWire.toBase64Url(me.publicKey), challenge.challenge, PeerWire.toBase64Url(signature))),
+            WireJson.encodeToString(SessionRedeem.serializer(), SessionRedeem(PeerWire.toBase64Url(me.publicKey), challenge.challenge, PeerWire.toBase64Url(signature), account)),
             SessionGrant.serializer(),
             token = null,
         ) ?: throw IOException("no grant")

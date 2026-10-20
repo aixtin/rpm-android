@@ -148,11 +148,13 @@ fun QueueDrawer(player: Player, images: ImageLoader, backdrop: Backdrop, open: B
     }
 
     // Each entry checks again, at the moment it is picked, that the row is still where it was when the menu opened.
+    // The glyphs are the desktop's queue menu's (PlaylistView: play, the minus for Remove) and its song menu's step
+    // forward for Play next. The desktop has no Move entry. It has the grip that the moving row shows here.
     fun choicesFor(i: Int, row: QueueRow): List<MenuChoice> = buildList {
-        add(MenuChoice(R.string.AlbumMenu_Play) { if (player.holds(i, row)) player.seekTo(i, 0) })
+        add(MenuChoice(R.string.AlbumMenu_Play, Fa.PLAY) { if (player.holds(i, row)) player.seekTo(i, 0) })
         // Not on the playing row or the one already next.
         if (i != playing && i != playing + 1) {
-            add(MenuChoice(R.string.Viz_QueuePlayNext) {
+            add(MenuChoice(R.string.Viz_QueuePlayNext, Fa.STEP_FORWARD) {
                 val current = player.currentMediaItemIndex
                 if (player.holds(i, row) && i != current && i != current + 1) {
                     // Taking a row from above the playing one moves the playing one up a place.
@@ -162,7 +164,7 @@ fun QueueDrawer(player: Player, images: ImageLoader, backdrop: Backdrop, open: B
             })
         }
         if (rows.size > 1) {
-            add(MenuChoice(R.string.Viz_QueueMove) {
+            add(MenuChoice(R.string.Viz_QueueMove, Fa.GRIP) {
                 if (player.holds(i, row)) {
                     moving = row
                     movingAt = i
@@ -170,7 +172,7 @@ fun QueueDrawer(player: Player, images: ImageLoader, backdrop: Backdrop, open: B
                 }
             })
         }
-        add(MenuChoice(R.string.Viz_QueueRemove) {
+        add(MenuChoice(R.string.Viz_QueueRemove, Fa.MINUS) {
             if (player.holds(i, row)) {
                 player.removeMediaItem(i)
                 reread()

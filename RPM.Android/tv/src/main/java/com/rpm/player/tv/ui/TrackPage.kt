@@ -382,14 +382,19 @@ private fun AlbumFavourites.Marks.isFavouriteOf(album: CloudAlbum?): Boolean = a
  * every page, and for a record on the person's own collection Favourite album (or Remove from favourites) and Rate
  * album, which asks for the stars with [stars] already set. A borrowed collection is not written to from here, as
  * in a track's menu.
+ *
+ * Each entry has the glyph of the desktop's record menu (AlbumMenuFactory): the crossed arrows, the step forward,
+ * and the heart, outlined until the record is a favourite. Adding to the queue has the list of music, as Add to
+ * Now playing has in the desktop's song menu (TrackMenuFactory). The desktop has no stars entry on a record. Rate
+ * has the star that its card is made of.
  */
 private fun pageChoices(page: PageOf, queue: List<Queued>, collection: Collection, favourite: Boolean, stars: Int, actions: TrackActions): List<MenuLine> = buildList {
-    add(MenuChoice(if (page is PageOf.OfAlbum) R.string.AlbumGrid_Shuffle else R.string.AlbumMenu_Shuffle) { actions.play(queue.shuffled(), 0) })
-    add(MenuChoice(R.string.Tv_Album_AddToQueue) { actions.addToQueue(queue) })
-    add(MenuChoice(R.string.AlbumMenu_PlayNext) { actions.playNext(queue) })
+    add(MenuChoice(if (page is PageOf.OfAlbum) R.string.AlbumGrid_Shuffle else R.string.AlbumMenu_Shuffle, Fa.SHUFFLE) { actions.play(queue.shuffled(), 0) })
+    add(MenuChoice(R.string.Tv_Album_AddToQueue, Fa.PLAYLISTS) { actions.addToQueue(queue) })
+    add(MenuChoice(R.string.AlbumMenu_PlayNext, Fa.STEP_FORWARD) { actions.playNext(queue) })
     if (page !is PageOf.OfAlbum || collection.shelf != Shelf.Own) return@buildList
-    add(MenuChoice(if (favourite) R.string.Album_UnsetFavorite else R.string.AlbumMenu_Favorite) { actions.markAlbum(page.album, !favourite) })
-    add(MenuStars(R.string.Tv_Album_Rate, stars, cancel = R.string.Common_Cancel, confirm = R.string.Tv_Album_RateConfirm) { picked -> actions.rateAlbum(page.album, picked) })
+    add(MenuChoice(if (favourite) R.string.Album_UnsetFavorite else R.string.AlbumMenu_Favorite, Fa.HEART, outline = !favourite) { actions.markAlbum(page.album, !favourite) })
+    add(MenuStars(R.string.Tv_Album_Rate, stars, cancel = R.string.Common_Cancel, confirm = R.string.Tv_Album_RateConfirm, glyph = Fa.STAR) { picked -> actions.rateAlbum(page.album, picked) })
 }
 
 /**
@@ -398,17 +403,21 @@ private fun pageChoices(page: PageOf, queue: List<Queued>, collection: Collectio
  * ticked where the track is already in one. A borrowed collection
  * is not written to from here, so those two are left off rather than shown and refused, as on the phone.
  * The favourite entry says which way pressing it changes things, as the phone's and the desktop's do.
+ *
+ * The glyphs are the desktop's song menu's (TrackMenuFactory): play, the step forward, the list of music for
+ * Now playing and for the playlists alike, the radio, the heart (outlined while it is not a favourite), and the
+ * plus for a new playlist.
  */
 internal fun trackChoices(q: Queued, collection: Collection, actions: TrackActions, play: () -> Unit): List<MenuLine> = buildList {
-    add(MenuChoice(R.string.AlbumMenu_Play, play))
-    add(MenuChoice(R.string.AlbumMenu_PlayNext) { actions.playNext(listOf(q)) })
-    add(MenuChoice(R.string.Playlists_AddToNowPlaying) { actions.addToQueue(listOf(q)) })
-    add(MenuChoice(R.string.Track_StartRadio) { actions.startRadio(q) })
+    add(MenuChoice(R.string.AlbumMenu_Play, Fa.PLAY, act = play))
+    add(MenuChoice(R.string.AlbumMenu_PlayNext, Fa.STEP_FORWARD) { actions.playNext(listOf(q)) })
+    add(MenuChoice(R.string.Playlists_AddToNowPlaying, Fa.PLAYLISTS) { actions.addToQueue(listOf(q)) })
+    add(MenuChoice(R.string.Track_StartMixtape, Fa.MIXTAPE) { actions.startRadio(q) })
     if (collection.shelf != Shelf.Own) return@buildList
     if (q.track.tags?.favorite == true) {
-        add(MenuChoice(R.string.Track_UnsetFavorite) { actions.mark(q, false) })
+        add(MenuChoice(R.string.Track_UnsetFavorite, Fa.HEART) { actions.mark(q, false) })
     } else {
-        add(MenuChoice(R.string.Track_SetFavorite) { actions.mark(q, true) })
+        add(MenuChoice(R.string.Track_SetFavorite, Fa.HEART, outline = true) { actions.mark(q, true) })
     }
     // New playlist first, then their playlists, so a person with none yet can still make one.
     val playlists = collection.lists.filter { !it.generated }
@@ -416,13 +425,14 @@ internal fun trackChoices(q: Queued, collection: Collection, actions: TrackActio
         MenuSub(
             R.string.Playlists_AddToPlaylist,
             buildList {
-                add(MenuName(R.string.Playlists_NewPlaylist, hint = R.string.Rpm_NewPlaylist_Name, confirm = R.string.Rpm_NewPlaylist_Create) { name -> actions.fileNew(q, name) })
+                add(MenuName(R.string.Playlists_NewPlaylist, hint = R.string.Rpm_NewPlaylist_Name, confirm = R.string.Rpm_NewPlaylist_Create, glyph = Fa.PLUS) { name -> actions.fileNew(q, name) })
                 if (playlists.isNotEmpty()) add(MenuGap)
                 playlists.forEach { list ->
                     val name = (list.name as? ListName.Text)?.text.orEmpty()
                     add(MenuTick(name, ticked = list.tracks.any { it.rpmId == q.track.rpmId }) { actions.fileIn(q, list) })
                 }
             },
+            glyph = Fa.PLAYLISTS,
         ),
     )
 }

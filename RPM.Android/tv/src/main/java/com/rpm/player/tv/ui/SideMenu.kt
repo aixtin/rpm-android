@@ -72,11 +72,13 @@ data class MenuHeader(val name: String, val line: String, val picture: String?, 
  * Pegasus's side menu (PegasusChrome.xaml, SideMenuPanel; PegasusChrome.SideMenu.cs), opened from home
  * or radio with Left held for 2 seconds or with the remote's Menu key.
  *
- * A panel of the light glass `330·s` wide, `10·s` in from the left, top and bottom: the person at the
+ * A panel of the light glass `495·s` wide, `10·s` in from the left, top and bottom: the person at the
  * top (their picture, else a round mark with their initial; their name; "My collection"; the supporter mark
  * when the collection's owner is one) with the collections key and the reload key beside them (the reload key at the
  * top right reads the collection from the cloud again and turns while it does), the entries under it, and Exit rpm
- * with the settings key at the foot. The glass is dimmed ([GLASS_DIM]), which the desktop's is not, so white
+ * with the settings key at the foot. It was 330·s; half as wide again, a long name such as a first name and a
+ * family name with a particle is not cut short beside the two keys. Nothing else is placed from its width: the
+ * screen under it does not move. The glass is dimmed ([GLASS_DIM]), which the desktop's is not, so white
  * text stays readable over a bright banner photo. It fades in over 140 ms and out over
  * 110; the screen behind it is neither dimmed nor moved.
  *
@@ -175,7 +177,7 @@ fun SideMenu(
         LiveGlassCard(
             backdrop = backdrop,
             corner = 7.s,
-            modifier = Modifier.padding(start = 10.s, top = 10.s, bottom = 10.s).width(330.s).fillMaxHeight(),
+            modifier = Modifier.padding(start = 10.s, top = 10.s, bottom = 10.s).width(495.s).fillMaxHeight(),
         ) {
             Box(Modifier.matchParentSize().background(GLASS_DIM))
             SpotScope(spot, Modifier.fillMaxSize()) {
@@ -427,6 +429,7 @@ private fun settingLines(page: SettingsPage, settings: PlayerSettings, account: 
                     },
                     settings::nextScreensaver,
                 ),
+                SettingLine(stringResource(R.string.Tv_SettingsKeyLegend), if (settings.keyLegend) on else off, settings::switchKeyLegend),
                 // The next language takes effect as the screens are drawn again, as on the set-up screen.
                 SettingLine(stringResource(R.string.Tv_Setup_Language), locale.getDisplayName(locale).replaceFirstChar { it.titlecase(locale) }) {
                     val languages = Region.LANGUAGES

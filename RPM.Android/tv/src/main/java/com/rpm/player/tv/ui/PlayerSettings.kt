@@ -135,6 +135,16 @@ class PlayerSettings(context: Context) {
 
     fun nextAlbumOrder() = pickAlbumOrder(WallOrder.entries[(albumOrder.ordinal + 1) % WallOrder.entries.size])
 
+    /** Whether a screen, as it opens, shows for two seconds what the remote's keys do on it ([ControlsLegend]); on
+     * until switched off, since someone new to the TV is the one who needs it and will not look for it here. */
+    var keyLegend by mutableStateOf(prefs.getBoolean(KEY_LEGEND, true))
+        private set
+
+    fun switchKeyLegend() {
+        keyLegend = !keyLegend
+        prefs.edit().putBoolean(KEY_LEGEND, keyLegend).apply()
+    }
+
     /** Where the mini player stands ([MiniPlace]), or Off for none; the default is at the top. */
     var miniPlace by mutableStateOf(prefs.getString(KEY_MINI, null)?.let { name -> MiniPlace.entries.firstOrNull { it.name == name } } ?: MiniPlace.Top)
         private set
@@ -209,5 +219,6 @@ class PlayerSettings(context: Context) {
         private const val KEY_KARAOKE = "lyrics.karaoke"
         private const val KEY_SETUP = "setup.pending"
         private const val KEY_MINI = "mini.place"
+        private const val KEY_LEGEND = "screens.legend"
     }
 }

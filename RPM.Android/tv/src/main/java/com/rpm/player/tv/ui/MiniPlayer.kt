@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import coil3.ImageLoader
@@ -207,17 +209,27 @@ fun MiniPlayer(
                         // The lines are centred on the cover, both for a track (three lines and the bar) and for a
                         // station (its lines and no bar).
                         Row(Modifier.padding(13.ms + 1.px), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(96.ms).clip(RoundedCornerShape(6.px)).background(Ink.Well), contentAlignment = Alignment.Center) {
-                                Glyph(Fa.RECORD, 28.mts, Color(0x59FFFFFF))
-                                val picture: Any? = nowPlaying.station?.logo ?: nowPlaying.cover
-                                if (picture != null) {
-                                    // A new record keeps the last cover until its own cover has loaded, then fades to it.
-                                    HeldCover(
-                                        picture = picture,
-                                        images = images,
-                                        contentScale = if (nowPlaying.station != null) ContentScale.Fit else ContentScale.Crop,
-                                        modifier = Modifier.matchParentSize(),
-                                    )
+                            val station = nowPlaying.station
+                            Box(Modifier.size(96.ms).clip(RoundedCornerShape(6.px)).background(if (station != null) SLEEVE_DARK else Ink.Well), contentAlignment = Alignment.Center) {
+                                if (station != null) {
+                                    // The player's picture of a station ([StationArt]): its logo dressed by [StationMark] on
+                                    // the sleeve's dark, a mark on its made ground, held off the edges by the share the
+                                    // player's sleeve holds it by on this screen. The bare logo, fitted on the well, lost the
+                                    // ground and showed the record glyph through a mark. It is the station's picture, not the
+                                    // song's: it stays as the song changes, as the player's does, and a station whose logo
+                                    // does not load shows the dark alone, as the player's sleeve does.
+                                    val screen = LocalConfiguration.current
+                                    val inset = remember(screen.screenWidthDp, screen.screenHeightDp) {
+                                        stationInset(sleeveSide(screen.screenWidthDp.dp, screen.screenHeightDp.dp))
+                                    }
+                                    StationMark(station.logo, images, inset = inset, fadeInMs = HELD_FADE_MS, onState = {}, modifier = Modifier.matchParentSize())
+                                } else {
+                                    Glyph(Fa.RECORD, 28.mts, Color(0x59FFFFFF))
+                                    val picture = nowPlaying.cover
+                                    if (picture != null) {
+                                        // A new record keeps the last cover until its own cover has loaded, then fades to it.
+                                        HeldCover(picture = picture, images = images, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                                    }
                                 }
                             }
                             Spacer(Modifier.width(17.ms))

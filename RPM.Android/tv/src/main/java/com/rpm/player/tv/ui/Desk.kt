@@ -91,6 +91,8 @@ object Fa {
     const val MUSIC = ''
     const val PLAYLISTS = ''
     const val RADIO = ''
+    /** A cassette tape: the mixtape (songs like one song, kept coming), kept apart from the internet radio's mark. */
+    const val MIXTAPE = '\uF8AB'
     const val GEAR = ''
     const val BARS = ''
     const val ARROW_LEFT = ''
@@ -127,8 +129,21 @@ object Fa {
     const val PIN = ''
     /** The settings' Display section. */
     const val TV = ''
+    /** The menus' entries, by the desktop's menus (AlbumMenuFactory, TrackMenuFactory, PlaylistView): play
+     * next is the step forward, a new playlist the plus, taking a row out of a list the minus. */
+    const val STEP_FORWARD = '\uf051'
+    const val PLUS = '\uf067'
+    const val MINUS = '\uf068'
     /** The player's layout key. */
     const val LAYOUT = ''
+    /** The key legend's keys ([ControlsLegend]): Back (undo), the arrows (arrows-alt), Left and Right
+     * (arrows-alt-h), Up, Right, and OK (dot-circle). */
+    const val UNDO = ''
+    const val ARROWS = ''
+    const val ARROWS_H = ''
+    const val ARROW_UP = ''
+    const val ARROW_RIGHT = ''
+    const val OK = ''
 }
 
 /** The colours Pegasus paints with, as the desktop writes them (#AARRGGBB). */

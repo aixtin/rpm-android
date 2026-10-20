@@ -477,7 +477,7 @@ private fun QuickLine(pick: QuickPick, collection: Collection, images: ImageLoad
         is QuickPick.OfStation -> Triple(pick.station.display, stringResource(R.string.Home_QuickStation), Glyph.radio)
         // Named for the song it starts from, the kind first on the line under it, so it reads as a radio and not as
         // the song's own line further on.
-        is QuickPick.Radio -> Triple(pick.track.title.orEmpty(), kindLine(stringResource(R.string.Home_QuickRadio), pick.track.artist), Glyph.radio)
+        is QuickPick.Radio -> Triple(pick.track.title.orEmpty(), kindLine(stringResource(R.string.Home_QuickMixtape), pick.track.artist), Glyph.mixtape)
     }
     val onClick: (() -> Unit)? = when (pick) {
         is QuickPick.Song -> { { actions.onPlay(listOf(pick.track)) } }

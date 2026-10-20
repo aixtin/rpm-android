@@ -110,26 +110,31 @@ fun Modifier.heldOkMenu(onMenu: () -> Unit): Modifier = composed {
 
 private const val NO_PRESS = -1L
 
-/** One line of a menu. */
+/**
+ * One line of a menu. An entry may carry a Font Awesome [glyph], drawn before its words as the desktop's menus
+ * draw their FontIcons (AlbumMenuFactory, TrackMenuFactory), in the solid face unless [outline]: the desktop's
+ * one outline glyph is the heart of something not yet a favourite. A menu with a glyph on any line keeps the
+ * glyphs' column on every line, so the words of all its lines start at one edge, as WinUI's do.
+ */
 sealed interface MenuLine
 
 /** An entry, by its string. */
-data class MenuChoice(@StringRes val label: Int, val act: () -> Unit) : MenuLine
+data class MenuChoice(@StringRes val label: Int, val glyph: Char? = null, val outline: Boolean = false, val act: () -> Unit) : MenuLine
 
 /** An entry by its text, ticked when it is the one in force (WinUI's ToggleMenuFlyoutItem). */
 data class MenuTick(val text: String, val ticked: Boolean, val act: () -> Unit) : MenuLine
 
 /** An entry that opens more entries in the menu's place (WinUI's MenuFlyoutSubItem). Back returns. */
-data class MenuSub(@StringRes val label: Int, val lines: List<MenuLine>) : MenuLine
+data class MenuSub(@StringRes val label: Int, val lines: List<MenuLine>, val glyph: Char? = null) : MenuLine
 
 /** An entry that asks for a name in the menu's place: a field with [hint] for the TV's keyboard, and a key
  * labelled [confirm] that hands the trimmed name to [act] and closes the menu. Back returns. */
-data class MenuName(@StringRes val label: Int, @StringRes val hint: Int, @StringRes val confirm: Int, val act: (String) -> Unit) : MenuLine
+data class MenuName(@StringRes val label: Int, @StringRes val hint: Int, @StringRes val confirm: Int, val glyph: Char? = null, val act: (String) -> Unit) : MenuLine
 
 /** An entry that asks for a number of stars in the menu's place: [label] as a heading, five stars set from
  * [stars] that Left and Right change, and the keys [cancel] and [confirm]. [confirm] hands the stars (0 for
  * none) to [act] and closes the menu. [cancel] closes it. Back returns to the menu. */
-data class MenuStars(@StringRes val label: Int, val stars: Int, @StringRes val cancel: Int, @StringRes val confirm: Int, val act: (Int) -> Unit) : MenuLine
+data class MenuStars(@StringRes val label: Int, val stars: Int, @StringRes val cancel: Int, @StringRes val confirm: Int, val glyph: Char? = null, val act: (Int) -> Unit) : MenuLine
 
 /** A rule between entries. */
 data object MenuGap : MenuLine
@@ -140,10 +145,20 @@ data class MenuNote(val text: String) : MenuLine
 
 /** An entry that does its work and leaves the menu open, for a menu whose lines change while it is open
  * ([RowMenuState.refresh]), for example the cast menu's Look again. */
-data class MenuAction(@StringRes val label: Int, val act: () -> Unit) : MenuLine
+data class MenuAction(@StringRes val label: Int, val glyph: Char? = null, val act: () -> Unit) : MenuLine
 
 /** Whether the remote can stop on a line. */
 private val MenuLine.isEntry: Boolean get() = this !is MenuGap && this !is MenuNote
+
+/** The glyph drawn before a line's words, if it has one ([MenuLine]). A tick's column is its own. */
+private val MenuLine.glyph: Char? get() = when (this) {
+    is MenuChoice -> glyph
+    is MenuSub -> glyph
+    is MenuName -> glyph
+    is MenuStars -> glyph
+    is MenuAction -> glyph
+    is MenuTick, is MenuNote, MenuGap -> null
+}
 
 /**
  * Whether a row's menu is open, what it offers, and the row that gets the focus back when it closes.
@@ -379,6 +394,8 @@ private fun MenuCard(
     val spot = remember { FocusSpot() }
     // A menu that ticks one entry keeps a column for the tick on every entry, as WinUI's does.
     val ticks = lines.any { it is MenuTick }
+    // Likewise a menu with a glyph on any entry keeps the glyphs' column on every entry ([MenuLine]).
+    val icons = lines.any { it.glyph != null }
     // Off while the menu fades out: a Back pressed then belongs to the screen under it.
     BackHandler(enabled = !leaving && LocalOnTop.current, onBack = onBack)
     // Whether the focus is anywhere in this card. The request below is repeated until this is true.
@@ -427,25 +444,25 @@ private fun MenuCard(
                                     if (i == lastEntry) down = FocusRequester.Cancel
                                 }
                             when (line) {
-                                is MenuChoice -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, more = false, onClick = {
+                                is MenuChoice -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, icons = icons, glyph = line.glyph, outline = line.outline, more = false, onClick = {
                                     onClose()
                                     line.act()
                                 }, modifier = focus)
-                                is MenuTick -> MenuEntryRow(line.text, ticked = line.ticked, more = false, onClick = {
+                                is MenuTick -> MenuEntryRow(line.text, ticked = line.ticked, icons = icons, more = false, onClick = {
                                     onClose()
                                     line.act()
                                 }, modifier = focus)
-                                is MenuSub -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, more = true, onClick = { onOpenSub(line) }, modifier = focus)
-                                is MenuName -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, more = false, onClick = { onOpenName(line) }, modifier = focus)
-                                is MenuStars -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, more = false, onClick = { onOpenStars(line) }, modifier = focus)
-                                is MenuAction -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, more = false, onClick = line.act, modifier = focus)
+                                is MenuSub -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, icons = icons, glyph = line.glyph, more = true, onClick = { onOpenSub(line) }, modifier = focus)
+                                is MenuName -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, icons = icons, glyph = line.glyph, more = false, onClick = { onOpenName(line) }, modifier = focus)
+                                is MenuStars -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, icons = icons, glyph = line.glyph, more = false, onClick = { onOpenStars(line) }, modifier = focus)
+                                is MenuAction -> MenuEntryRow(stringResource(line.label), ticked = if (ticks) false else null, icons = icons, glyph = line.glyph, more = false, onClick = line.act, modifier = focus)
                                 is MenuNote -> Text(
                                     line.text,
                                     style = ui(PAGE_TEXT),
                                     color = Ink.Dim,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(start = if (ticks) 46.s else 16.s, end = 16.s, top = 9.s, bottom = 9.s),
+                                    modifier = Modifier.padding(start = 16.s + (if (ticks) TICK_WIDE else 0.s) + (if (icons) ICON_WIDE + ICON_GAP else 0.s), end = 16.s, top = 9.s, bottom = 9.s),
                                 )
                                 MenuGap -> Box(Modifier.padding(horizontal = 10.s, vertical = 4.s).fillMaxWidth().height(1.px).background(Color(0x26FFFFFF)))
                             }
@@ -773,11 +790,24 @@ private const val KEYBOARD_POLL_MS = 150L
 /**
  * One entry, lit as a search result is (`#33FFFFFF`, corner 8) while the remote is on it: its words
  * at [PAGE_TEXT], the size of a track's title in the list, with padding of 16·s by 9·s. [ticked] is null in a
- * menu without ticks, otherwise it says whether the tick of this entry shows. [more] draws the chevron of a
- * submenu.
+ * menu without ticks, otherwise it says whether the tick of this entry shows. [icons] keeps the glyphs' column,
+ * after the tick's, where [glyph] is drawn if this entry has one, in the regular face if [outline]. [more]
+ * draws the chevron of a submenu.
+ *
+ * The desktop draws a menu's FontIcon in a 16 by 16 box at the size of the entry's words (FaMenuIcon in
+ * Generic.xaml), 12 before its words. Here that is scaled by the words' own size, [PAGE_TEXT] against 12.
  */
 @Composable
-private fun MenuEntryRow(label: String, ticked: Boolean?, more: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun MenuEntryRow(
+    label: String,
+    ticked: Boolean?,
+    more: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    icons: Boolean = false,
+    glyph: Char? = null,
+    outline: Boolean = false,
+) {
     var lit by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(8.px)
     DeskButton(
@@ -792,7 +822,11 @@ private fun MenuEntryRow(label: String, ticked: Boolean?, more: Boolean, onClick
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (ticked != null) {
-                Box(Modifier.width(30.s)) { if (ticked) Glyph(Fa.CHECK, 15.ts, Ink.Words) }
+                Box(Modifier.width(TICK_WIDE)) { if (ticked) Glyph(Fa.CHECK, 15.ts, Ink.Words) }
+            }
+            if (icons) {
+                Box(Modifier.width(ICON_WIDE), contentAlignment = Alignment.Center) { if (glyph != null) Glyph(glyph, ICON_SIZE, Ink.Words, regular = outline) }
+                Spacer(Modifier.width(ICON_GAP))
             }
             Text(label, style = ui(PAGE_TEXT), color = Ink.Words, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             if (more) {
@@ -804,6 +838,16 @@ private fun MenuEntryRow(label: String, ticked: Boolean?, more: Boolean, onClick
 }
 
 private val MENU_CORNER = 12.s
+
+/** The tick's column, in a menu that ticks an entry. */
+private val TICK_WIDE = 30.s
+
+/** The glyphs' column and the room after it, in a menu with glyphs: the desktop's 16 and 12 at its words'
+ * 12, scaled to [PAGE_TEXT]. The glyph is a little under the words' size, as Font Awesome's run larger than
+ * Selawik's letters at one size. */
+private val ICON_WIDE = 26.s
+private val ICON_GAP = 18.s
+private val ICON_SIZE = 17.ts
 private val MENU_INSET = 8.s
 private val MENU_GAP = 8.px
 

@@ -625,11 +625,21 @@ fun StationArt(logo: StationLogo, images: ImageLoader, frame: Color) {
         val thickness = maxOf(1f, (side.value * 2 * 0.014f).roundToInt().toFloat()).px
         val shape = RoundedCornerShape(maxOf(2.px.value, side.value * 0.012f).dp)
         val drawnFrame by animateColorAsState(frame, tween(COVER_FADE_MS), label = "frame")
-        Box(Modifier.fillMaxSize().clip(shape).background(Color(0xFF0A0A0A)).border(thickness, drawnFrame, shape)) {
-            StationMark(logo, images, inset = 34.px / side, fadeInMs = PICTURE_FADE_MS, onState = {}, modifier = Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().clip(shape).background(SLEEVE_DARK).border(thickness, drawnFrame, shape)) {
+            StationMark(logo, images, inset = stationInset(side), fadeInMs = PICTURE_FADE_MS, onState = {}, modifier = Modifier.fillMaxSize())
         }
     }
 }
+
+/**
+ * How far a station's logo that does not fill is held off the edges of a sleeve of [side], as a share of the
+ * side: 34 px, as in [StationArt]. The mini player dresses the logo with the share of the player's own sleeve
+ * ([sleeveSide] on the screen), so its picture of a station is the player's, only smaller.
+ */
+fun stationInset(side: Dp): Float = 34.px / side
+
+/** The sleeve's dark, which shows round a station's logo that does not fill it, and alone where it has none. */
+val SLEEVE_DARK = Color(0xFF0A0A0A)
 
 fun clockOf(ms: Long): String {
     val total = (ms / 1000).coerceAtLeast(0)

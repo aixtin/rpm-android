@@ -970,8 +970,8 @@ private fun QuickEntry(
             picture = pick.album?.let { collection.cover(it) }
             title = pick.track.title.orEmpty()
             line = pick.track.artist?.takeIf { it.isNotBlank() }
-                ?.let { stringResource(R.string.Home_QuickKindJoin, stringResource(R.string.Home_QuickRadio), it) }
-                ?: stringResource(R.string.Home_QuickRadio)
+                ?.let { stringResource(R.string.Home_QuickKindJoin, stringResource(R.string.Home_QuickMixtape), it) }
+                ?: stringResource(R.string.Home_QuickMixtape)
         }
     }
     CardButton(

@@ -94,6 +94,8 @@ object Glyph {
     const val link = "\uF0C1"
     const val code = "\uF121"
     const val radio = "\uF519"
+    // A cassette tape: a mixtape of songs like one song, kept apart from the internet radio's mark.
+    const val mixtape = "\uF8AB"
     const val profile = "\uF007"
 
     /** The cross that closes a search row. The circled one clears a search box. */

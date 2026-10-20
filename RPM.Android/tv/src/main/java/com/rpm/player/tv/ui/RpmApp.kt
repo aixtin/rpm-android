@@ -157,6 +157,8 @@ fun RpmApp(
             return@MaterialTheme
         }
         val stack = remember(signedIn.userId) { ScreenStack() }
+        // The key legend of the screen just opened ([ControlsLegend]).
+        val legend = remember(signedIn.userId) { LegendState() }
         var menuOpen by remember { mutableStateOf(false) }
         var settingsOpen by remember { mutableStateOf(false) }
         // The album wall's search, kept while an album page is open over the wall (WallSearchState).
@@ -281,11 +283,19 @@ fun RpmApp(
             }
         }
 
+        // A screen opened gets its key legend while nothing covers it: not under the opening screen, the set-up, the
+        // player, the side menu or the settings, nor before the library is up. Something come over it sends it away.
+        val legendReady = settings.keyLegend && !opening && !settings.setupPending && libraryState is LibraryState.Ready &&
+            (!playerShown || nowPlaying == null) && !menuOpen && !settingsOpen
+        LaunchedEffect(stack.top, legendReady) { legend.front(stack.top, legendReady) }
+
         Box(
             Modifier
                 .fillMaxSize()
                 .onPreviewKeyEvent { event ->
                     val key = event.nativeKeyEvent
+                    // Any key sends the key legend away; the key itself goes on to do what it does.
+                    if (key.action == KeyEvent.ACTION_DOWN) legend.keyDown()
                     // The set-up takes its own keys; nothing under it is reachable, as its keys hold the focus.
                     if (settings.setupPending) return@onPreviewKeyEvent false
                     // Nothing under the opening screen moves while it is up. Back is the activity's, and
@@ -532,6 +542,11 @@ fun RpmApp(
                             region = services.region,
                             onClose = { settingsOpen = false },
                         )
+                    }
+                    // The keys of the screen just opened, in a corner the mini player is not in.
+                    if (collectionUp && !menuOpen && !settingsOpen) {
+                        val miniHere = settings.miniPlace.takeIf { route.hasMiniPlayer && it != MiniPlace.Off }
+                        ControlsLegend(legend, backdrop, settings.albumCarousel, Modifier.align(legendCorner(miniHere)).padding(34.px))
                     }
                     // A shared collection put down while it was open: the person is back on their own, and told why.
                     Flash(noticeText, noticeCount, Modifier.align(Alignment.BottomCenter).padding(bottom = 44.px))

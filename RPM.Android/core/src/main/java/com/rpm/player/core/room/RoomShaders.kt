@@ -217,10 +217,13 @@ vec3 styleRoom(vec2 p)
     {
         small += rpmLobe(p, uSmall[i].xy, uSmall[i].z, 0.60) * uSmall[i].w;
     }
-    col = mix(col, uTint, smoothstep(0.30, 1.75, big));
-    col += uTint * smoothstep(1.60, 3.40, big) * (0.12 + uBass * 0.44);
+    // The small balls first and the big ones over them, so the small pass behind the big: where a big ball
+    // stands, its cover hides the small one under it.
     col = mix(col, uGlow, smoothstep(0.25, 1.60, small) * 0.85);
     col += uGlow * smoothstep(1.20, 3.00, small) * (0.14 + uAir * 0.40);
+    float cover = smoothstep(0.30, 1.75, big);
+    col = mix(col, uTint, cover);
+    col += uTint * smoothstep(1.60, 3.40, big) * (0.12 + uBass * 0.44);
     return col;
 }
 """,

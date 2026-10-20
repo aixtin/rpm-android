@@ -110,10 +110,18 @@ data class WordSpan(val start: Int, val length: Int, val from: Double, val to: D
  * `LyricTiming.Sweep` (RPM.Core/Lyrics). LRCLIB sheets have no word timestamps, so the line is
  * spread across its words by their length, from the line's own time to the next line's time. The
  * speed is capped at [SLOWEST_CHARS] characters a second: past that the sweep finishes and the
- * line stays lit, instead of crawling through an instrumental.
+ * line stays lit, instead of crawling through an instrumental. The line's last word then takes the time left
+ * before the next line, up to [LAST_HELD] and ending [BEFORE_NEXT] short of it: a line's last word is often the
+ * held note ("...and sends it on"), and lit at singing speed it sat lit while the voice still carried it.
  */
 object LyricTiming {
     const val SLOWEST_CHARS = 7.0
+
+    /** The longest a line's last word is held for, in seconds, past the singing-speed sweep. */
+    const val LAST_HELD = 3.0
+
+    /** How far short of the next line the held last word ends, in seconds. */
+    const val BEFORE_NEXT = 0.25
 
     fun sweep(text: String?, from: Double, until: Double): List<WordSpan> {
         val words = split(text)
@@ -123,13 +131,18 @@ object LyricTiming {
         val end = if (until.isFinite()) minOf(maxOf(from, until), capped) else capped
         val run = maxOf(0.0, end - from)
         var soFar = 0
-        return words.map { (start, length) ->
+        val spans = words.map { (start, length) ->
             // Measured from the start of the line, so rounding cannot move the last word off the end.
             val opens = from + run * soFar / maxOf(1, chars)
             soFar += length
             val closes = from + run * soFar / maxOf(1, chars)
             WordSpan(start, length, opens, closes)
         }
+        // The last word holds on into the time the sweep left over, when the next line is known.
+        if (!until.isFinite()) return spans
+        val last = spans.last()
+        val held = minOf(until - BEFORE_NEXT, last.to + LAST_HELD)
+        return if (held > last.to) spans.dropLast(1) + last.copy(to = held) else spans
     }
 
     /** Runs of anything that is not whitespace; punctuation stays with its word. */

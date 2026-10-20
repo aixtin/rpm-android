@@ -43,9 +43,18 @@ class LyricScoreTest {
     }
 
     @Test
-    fun theSweepIsNeverSlowerThanItsCap() {
-        val spans = LyricTiming.sweep("seven!!", 0.0, 60.0)
-        assertEquals(7 / LyricTiming.SLOWEST_CHARS, spans.last().to, 1e-9)
+    fun theSweepIsNeverSlowerThanItsCapAndTheLastWordHoldsOn() {
+        // Seven letters before the last word, swept at the cap; the last word then holds on, at most LAST_HELD.
+        val spans = LyricTiming.sweep("seven!! on", 0.0, 60.0)
+        assertEquals(7 / LyricTiming.SLOWEST_CHARS, spans[0].to, 1e-9)
+        assertEquals(9 / LyricTiming.SLOWEST_CHARS + LyricTiming.LAST_HELD, spans.last().to, 1e-9)
+    }
+
+    @Test
+    fun aHeldLastWordEndsJustShortOfTheNextLine() {
+        // "sends it on" swept by 11/7 s; the next line at 2.5 s: "on" holds until a quarter second before it.
+        val spans = LyricTiming.sweep("sends it on", 0.0, 2.5)
+        assertEquals(2.5 - LyricTiming.BEFORE_NEXT, spans.last().to, 1e-9)
     }
 }
 

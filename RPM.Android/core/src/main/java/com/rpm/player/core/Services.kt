@@ -55,6 +55,7 @@ import com.rpm.player.core.radio.RadioRepository
 import com.rpm.player.core.radio.StationLogoFetcher
 import com.rpm.player.core.radio.StationListens
 import com.rpm.player.core.radio.StationBlurbs
+import com.rpm.player.core.radio.SongCovers
 import com.rpm.player.core.radio.StationListensSync
 import com.rpm.player.core.radio.StationLogoKeyer
 import kotlinx.coroutines.CoroutineScope
@@ -168,6 +169,9 @@ class Services(context: Context, val levelling: Levelling, tunerOpensOn: com.rpm
 
     /** What each station is, in a line, for the radio banner. */
     val stationBlurbs = StationBlurbs(http)
+
+    /** The cover of the song a station says it is playing, for the player and the mini player. */
+    val songCovers = SongCovers(http)
 
     /** Artist photos and logos for home's banner, from the rpm API. */
     val artwork = Artwork(http)

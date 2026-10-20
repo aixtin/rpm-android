@@ -140,7 +140,7 @@ fun RpmApp(
     // The drifting cards change on one clock, which stops while the screens are gone: nothing they draw is seen.
     val driftClock = remember { DriftClock() }
     LaunchedEffect(driftClock, screensGone) { if (!screensGone) driftClock.run() }
-    CompositionLocalProvider(LocalMotion provides services.motion.level, LocalDriftClock provides driftClock, LocalDrawnAt provides 1f) {
+    CompositionLocalProvider(LocalMotion provides services.motion.level, LocalDriftClock provides driftClock, LocalDrawnAt provides 1f, LocalSongCovers provides services.songCovers) {
     MaterialTheme(colorScheme = darkColorScheme()) {
         // One opening sound for the process: the sign-in screen plays it as it comes up, and the opening screen's
         // hand-over then finds it played, so the app always starts with the opening sound.

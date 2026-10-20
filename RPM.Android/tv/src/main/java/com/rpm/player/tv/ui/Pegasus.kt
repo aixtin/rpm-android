@@ -216,7 +216,7 @@ private const val BESIDE_MS = 450
 private fun Art(nowPlaying: NowPlaying?, images: ImageLoader, vinyl: FloatArray, frame: Color) {
     val station = nowPlaying?.station
     if (station != null) {
-        StationArt(station.logo, images, frame)
+        StationArt(station.logo, images, frame, cover = rememberSongCover(station))
     } else {
         RecordArt(nowPlaying?.cover, nowPlaying?.disc, images, vinyl, SleeveLook.Framed(frame), out = 1f, turning = nowPlaying?.playing == true, turnSeconds = TURN_SECONDS)
     }
@@ -615,11 +615,12 @@ val SLEEVE_FRAME = Color(0xFF12161E)
 /**
  * A station in the sleeve, in the sleeve's frame: its logo dressed by [StationMark], so a mark stands on
  * its made ground filling the sleeve (the desktop's CoverGround, the header's TrackGround) and what does
- * not fill is held 34 px off the edges, on the sleeve's dark. There is no record: a station puts nothing
+ * not fill is held 34 px off the edges, on the sleeve's dark. Over it, the cover of the song the station says
+ * it is playing ([cover], [SongCoverOver]) where one was found. There is no record: a station puts nothing
  * on the deck.
  */
 @Composable
-fun StationArt(logo: StationLogo, images: ImageLoader, frame: Color) {
+fun StationArt(logo: StationLogo, images: ImageLoader, frame: Color, cover: String? = null) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val side = maxWidth
         val thickness = maxOf(1f, (side.value * 2 * 0.014f).roundToInt().toFloat()).px
@@ -627,6 +628,7 @@ fun StationArt(logo: StationLogo, images: ImageLoader, frame: Color) {
         val drawnFrame by animateColorAsState(frame, tween(COVER_FADE_MS), label = "frame")
         Box(Modifier.fillMaxSize().clip(shape).background(SLEEVE_DARK).border(thickness, drawnFrame, shape)) {
             StationMark(logo, images, inset = stationInset(side), fadeInMs = PICTURE_FADE_MS, onState = {}, modifier = Modifier.fillMaxSize())
+            SongCoverOver(cover, images)
         }
     }
 }

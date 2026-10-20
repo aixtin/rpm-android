@@ -215,14 +215,16 @@ fun MiniPlayer(
                                     // The player's picture of a station ([StationArt]): its logo dressed by [StationMark] on
                                     // the sleeve's dark, a mark on its made ground, held off the edges by the share the
                                     // player's sleeve holds it by on this screen. The bare logo, fitted on the well, lost the
-                                    // ground and showed the record glyph through a mark. It is the station's picture, not the
-                                    // song's: it stays as the song changes, as the player's does, and a station whose logo
-                                    // does not load shows the dark alone, as the player's sleeve does.
+                                    // ground and showed the record glyph through a mark. A station whose logo does not load
+                                    // shows the dark alone, as the player's sleeve does.
                                     val screen = LocalConfiguration.current
                                     val inset = remember(screen.screenWidthDp, screen.screenHeightDp) {
                                         stationInset(sleeveSide(screen.screenWidthDp.dp, screen.screenHeightDp.dp))
                                     }
                                     StationMark(station.logo, images, inset = inset, fadeInMs = HELD_FADE_MS, onState = {}, modifier = Modifier.matchParentSize())
+                                    // The song playing, where the station names one and its cover was found: the same
+                                    // picture the player's sleeve shows over the station ([StationArt]).
+                                    SongCoverOver(rememberSongCover(station), images, Modifier.matchParentSize())
                                 } else {
                                     Glyph(Fa.RECORD, 28.mts, Color(0x59FFFFFF))
                                     val picture = nowPlaying.cover

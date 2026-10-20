@@ -32,6 +32,16 @@ object KaraokeLight {
     /** The slowest the light may cross a letter of a held word, in seconds. */
     const val HELD_GLYPH = 0.6
 
+    /** The shortest a word is swept over, in seconds. A measured word can be a sliver at the end of a pause (an
+     * aligner that placed a held "on" in its last 40 ms); swept over that it would sit grey through the pause and then
+     * snap on. Such a word borrows time from the pause before it, so it eases in and still ends on its own moment. */
+    const val SHORTEST_WORD = 0.5
+
+    /** The slowest the light may cross a letter of a line's last word, in seconds. A line's last word is where a note
+     * is held, and a measurement often catches only its tail; it is swept from where the word before it ended, through
+     * the whole hold, at up to this much a letter. */
+    const val LAST_GLYPH = 1.5
+
     /** How long a sung line takes to fade back to [REST] once its last word has been sung, in seconds. It fades slowly
      * and on an even curve, so the line lets go as the voice does, and is already at the strength the lines round it
      * have when the next line takes over, instead of dropping there in one frame. */
@@ -42,13 +52,22 @@ object KaraokeLight {
 
     /** How far the light has arrived at letter [c] of [word] at [now], from 0 (not yet) to 1 (lit). [last] is
      * whether the word ends the line, the only place a word is taken as a held note. */
-    fun through(word: WordSpan, c: Int, last: Boolean, now: Double): Float {
+    fun through(word: WordSpan, c: Int, last: Boolean, now: Double, earliest: Double = word.from): Float {
         val of = word.length
-        val held = word.to - word.from
+        // A word too short to sweep starts earlier, into the pause before it, but never before [earliest] (where the
+        // word before it ended).
+        val shortest = maxOf(SHORTEST_WORD, of * SLOWEST_GLYPH)
+        val from = when {
+            // The last word reaches back through the pause before it, as far as its letters may be held.
+            last -> maxOf(earliest, minOf(word.from, word.to - of * LAST_GLYPH))
+            word.to - word.from >= shortest -> word.from
+            else -> maxOf(earliest, minOf(word.from, word.to - shortest))
+        }
+        val held = word.to - from
         val share = held / maxOf(1, of)
         // A word sung in its letters' time keeps Pegasus's cap; a held one is swept over its hold.
-        val step = if (share > SLOWEST_GLYPH) minOf(share, HELD_GLYPH) else share
-        val opens = word.from + step * c
+        val step = if (share > SLOWEST_GLYPH) minOf(share, if (last) LAST_GLYPH else HELD_GLYPH) else share
+        val opens = from + step * c
         val arriving = maxOf(GLYPH_SOFTNESS, step)
         return ((now - (opens - arriving)) / arriving).coerceIn(0.0, 1.0).toFloat()
     }
@@ -66,9 +85,11 @@ object KaraokeLight {
         for (w in spans.indices) {
             val word = spans[w]
             val last = w == spans.lastIndex
+            // The first word may not reach back before the line's own first moment.
+            val earliest = if (w == 0) word.from else spans[w - 1].to
             for (c in 0 until word.length) {
                 if (k >= into.size) return
-                into[k++] = REST + (1 - REST) * through(word, c, last, now) * fade
+                into[k++] = REST + (1 - REST) * through(word, c, last, now, earliest) * fade
             }
         }
     }

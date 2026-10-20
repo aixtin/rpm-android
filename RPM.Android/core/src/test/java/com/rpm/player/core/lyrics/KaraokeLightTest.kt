@@ -27,6 +27,33 @@ class KaraokeLightTest {
     }
 
     @Test
+    fun aHeldLastWordCaughtOnlyAtItsTailIsSweptThroughTheHold() {
+        // "it" ends at 85.5, then "on" measured as 89.28-89.32: the light goes through "on" over the hold, not in 40 ms.
+        val spans = listOf(WordSpan(0, 2, 85.0, 85.5), WordSpan(3, 2, 89.28, 89.32))
+        val into = FloatArray(4)
+        KaraokeLight.light(spans, 86.3, into)
+        assertTrue(into[2] > KaraokeLight.REST && into[2] < 1f)
+        // The second letter is on its way, a second and a half behind the first.
+        KaraokeLight.light(spans, 87.0, into)
+        assertTrue(into[3] > KaraokeLight.REST && into[3] < 1f)
+        KaraokeLight.light(spans, 89.32, into)
+        assertEquals(1f, into[3], 1e-6f)
+    }
+
+    @Test
+    fun aSliverOfAWordAfterAPauseEasesInInsteadOfSnapping() {
+        // Mid-line: "up" measured as 10.96-11.0 after a pause; swept over half a second before its end, not 40 ms.
+        val spans = listOf(WordSpan(0, 2, 9.0, 9.5), WordSpan(3, 2, 10.96, 11.0), WordSpan(6, 3, 11.2, 11.6))
+        val into = FloatArray(7)
+        KaraokeLight.light(spans, 10.2, into)
+        assertEquals(KaraokeLight.REST, into[2], 1e-6f)
+        KaraokeLight.light(spans, 10.6, into)
+        assertTrue(into[2] > KaraokeLight.REST && into[3] < 1f)
+        KaraokeLight.light(spans, 11.0, into)
+        assertEquals(1f, into[3], 1e-6f)
+    }
+
+    @Test
     fun theLineFadesBackToRestSlowlyAfterItsLastWord() {
         val spans = listOf(WordSpan(0, 2, 0.0, 0.5))
         val into = FloatArray(2)

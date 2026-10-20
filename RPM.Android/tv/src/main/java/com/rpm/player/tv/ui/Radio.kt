@@ -1002,8 +1002,8 @@ private class RevealStation(private val air: Float) : androidx.compose.foundatio
  *
  * The essential row's wide cards ([wide], 16:9) are dressed differently: the card picture the admin chose ([picture],
  * cropped to the card's middle) under a wash in the logo's own main colour, or the room (softened,
- * [ESSENTIAL_SOFTEN]) where there is no picture; the logo itself in the middle with nothing round it, no well and no
- * made ground; and under it, centred, the name and what the station is ([blurbs]), or its country where nothing says.
+ * [ESSENTIAL_SOFTEN]) where there is no picture, with no logo drawn over it (the admin's pictures carry the station's
+ * own mark); and under it, centred, the name and what the station is ([blurbs]), or its country where nothing says.
  */
 @Composable
 private fun StationCard(
@@ -1076,7 +1076,6 @@ private fun WideStationCard(
                     CoverImage(picture, images, ContentScale.Crop, Modifier.matchParentSize(), onShown = {})
                     Box(Modifier.matchParentSize().background(tint?.copy(alpha = PICTURE_TINT) ?: CARD_PICTURE_VEIL))
                 }
-                BareLogo(logo, images, maxWidth * WIDE_LOGO_WIDE, maxHeight * WIDE_LOGO_HIGH, Modifier.align(Alignment.Center))
             }
             Text(station.display, style = ui(CARD_TITLE_TEXT, FontWeight.SemiBold), color = Ink.Card, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             line?.let { Text(it, style = ui(CARD_LINE_TEXT), color = Ink.Dim, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
@@ -1084,40 +1083,13 @@ private fun WideStationCard(
     }
 }
 
-/**
- * A station's logo as it is, fitted whole into [width] by [height] with nothing behind or round it, or the antenna
- * where it has none. Decoded at [logoEdge] for the box, the request the radio home's opening decodes ahead with.
- */
-@Composable
-private fun BareLogo(logo: StationLogo, images: ImageLoader, width: Dp, height: Dp, modifier: Modifier) {
-    val context = LocalContext.current
-    var missing by remember(logo) { mutableStateOf(false) }
-    val edge = with(LocalDensity.current) { logoEdge(width.roundToPx(), height.roundToPx()) }
-    Box(modifier.size(width, height), contentAlignment = Alignment.Center) {
-        if (missing) {
-            Glyph(Fa.ANTENNA, (height.value * 0.45f).sp, Color(0x59FFFFFF))
-        } else {
-            AsyncImage(
-                model = remember(logo, edge) { bareLogoRequest(context, logo, edge) },
-                imageLoader = images,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                onState = { if (it is AsyncImagePainter.State.Error) missing = true },
-                modifier = Modifier.matchParentSize(),
-            )
-        }
-    }
-}
-
-/** Laid over a card picture so the logo reads on any picture: black where the logo's colour is not read yet. */
+/** Laid over a card picture where the logo's colour is not read yet. */
 private val CARD_PICTURE_VEIL = Color(0x40000000)
 
 /** How strongly an essential card's picture is washed in its logo's colour. */
 private const val PICTURE_TINT = 0.55f
 
-/** The box the bare logo is fitted into, as shares of an essential card's picture, and of a banner card. */
-private const val WIDE_LOGO_WIDE = 0.6f
-private const val WIDE_LOGO_HIGH = 0.55f
+/** The box a banner card's bare logo is fitted into, as shares of the card. */
 private const val BANNER_LOGO_WIDE = 0.55f
 private const val BANNER_LOGO_HIGH = 0.40f
 
@@ -1131,7 +1103,7 @@ private fun rowCardWidth(strip: Dp, across: Int): Dp = (strip - ROW_GAP * (acros
  * pixels, so two boxes a pixel apart share one decode. */
 private fun logoEdge(width: Int, height: Int): Int = ((maxOf(width, height, 1) + 31) / 32) * 32
 
-/** A bare logo's request, the same wherever it is made, so a decode ahead is found by the card ([BareLogo]). */
+/** A bare logo's request, the same wherever it is made, so a decode ahead is found by the banner card ([StationBannerCard]). */
 private fun bareLogoRequest(context: android.content.Context, logo: StationLogo, edge: Int): ImageRequest =
     ImageRequest.Builder(context)
         .data(logo)
@@ -1146,7 +1118,7 @@ private fun bareLogoRequest(context: android.content.Context, logo: StationLogo,
 private class Warming(val banner: List<RadioStation>, val essential: List<RadioStation>, val favorites: List<RadioStation>, val rules: StationRules)
 
 /** The sizes in pixels the radio home's cards draw their pictures at, for a [strip] of the screen's width. */
-private class RadioSizes(val plate: Int, val plateHigh: Int, val wide: Int, val square: Int, val bannerLogo: Int, val wideLogo: Int, val mark: Int) {
+private class RadioSizes(val plate: Int, val plateHigh: Int, val wide: Int, val square: Int, val bannerLogo: Int, val mark: Int) {
     companion object {
         fun of(strip: Dp, density: androidx.compose.ui.unit.Density): RadioSizes = with(density) {
             val plate = androidx.compose.ui.unit.min(strip * 0.68f, 760.s)
@@ -1158,7 +1130,6 @@ private class RadioSizes(val plate: Int, val plateHigh: Int, val wide: Int, val 
                 wide = wide.roundToPx(),
                 square = square.roundToPx(),
                 bannerLogo = logoEdge((plate * BANNER_LOGO_WIDE).roundToPx(), (PLATE_HIGH * BANNER_LOGO_HIGH).roundToPx()),
-                wideLogo = logoEdge((wide * WIDE_LOGO_WIDE).roundToPx(), (wide * 9f / 16f * WIDE_LOGO_HIGH).roundToPx()),
                 // The well is half the square card, and the mark is made at the well's size ([StationMark]).
                 mark = markEdge((square * 0.5f).roundToPx()),
             )
@@ -1170,7 +1141,7 @@ private class RadioSizes(val plate: Int, val plateHigh: Int, val wide: Int, val 
  * Everything the radio home's first screen draws, decoded before it is drawn, so the page comes up whole rather
  * than a logo, a room's colours and a line at a time, with the stutter of each. Every request is the one the card
  * makes, at the card's size, so the card finds it in memory: the banner's logos ([bareLogoRequest]), the essential
- * cards' pictures ([aheadRequest]) and logos, the favourites' made marks ([stationMarkRequest]) for the first
+ * cards' pictures ([aheadRequest]), the favourites' made marks ([stationMarkRequest]) for the first
  * [WARM_FAVORITES], every station's colours ([readCoverColours]) and the essential and banner stations' lines
  * ([StationBlurbs]). All at once; the caller caps the wait.
  */
@@ -1197,7 +1168,6 @@ private suspend fun warmRadioHome(context: android.content.Context, images: Imag
     }
     for (station in warming.essential) {
         val logo = logoOf(station)
-        ask { images.execute(bareLogoRequest(context, logo, sizes.wideLogo)) }
         ask { readCoverColours(images, logo, context) }
         ask { blurbs.of(station) }
         rules.cards.addressOf(station)?.let { picture -> ask { images.execute(aheadRequest(context, picture, sizes.wide, sizes.wide * 9 / 16)) } }

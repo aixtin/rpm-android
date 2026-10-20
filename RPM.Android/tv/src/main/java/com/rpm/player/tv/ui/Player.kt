@@ -219,7 +219,12 @@ fun PlayerScreen(
         synced = sheet.isSynced
     }
     val lyricsKnown = synced && !station
-    val lyricsShown = lyricsWanted && lyricsKnown
+    var queueOpen by remember { mutableStateOf(false) }
+    // The lyrics as the lyric key has them, and as they are drawn: the queue drawer puts them away while it is
+    // open, since the drawer and the lyrics cannot both have the room beside the record, and they come back as
+    // they were once it closes. The lyric key keeps showing the choice, not the moment.
+    val lyricsOn = lyricsWanted && lyricsKnown
+    val lyricsShown = lyricsOn && !queueOpen
 
     // The record's pressing and the sleeve's frame, from the cover or the station's logo. The cover reading
     // follows the current picture, so a new picture replaces the old reading. The room's colours are the
@@ -250,7 +255,6 @@ fun PlayerScreen(
     val queueKey = remember { FocusRequester() }
     val seekKey = remember { FocusRequester() }
     val seekKeys = remember(controller) { SeekKeys(controller) }
-    var queueOpen by remember { mutableStateOf(false) }
     // True while the drawer slides out after a close, so that it is still drawn while it leaves.
     var drawerLeaving by remember { mutableStateOf(false) }
     // Counts closings of the drawer, so each one hands the focus back to the key that opened it.
@@ -385,7 +389,7 @@ fun PlayerScreen(
                 nowPlaying = nowPlaying,
                 controller = controller,
                 station = station,
-                lyricKey = if (lyricsKnown) lyricsShown else null,
+                lyricKey = if (lyricsKnown) lyricsOn else null,
                 onLyrics = onLyricsKey,
                 onQueue = { queueOpen = true },
                 layoutKey = layoutKey,

@@ -1,5 +1,6 @@
 package com.rpm.player.tv.ui
 
+import com.rpm.player.core.playback.TrackRef
 import com.rpm.player.core.playback.NowPlaying
 import com.rpm.player.core.playback.rememberNowPlaying
 import com.rpm.player.core.playback.Queued
@@ -205,6 +206,7 @@ fun RpmApp(
         val notServed = stringResource(R.string.Rpm_Share_NotServed)
         var noticeText by remember { mutableStateOf<String?>(null) }
         var noticeCount by remember { mutableStateOf(0) }
+        val heartContext = LocalContext.current
         LaunchedEffect(notice) {
             val shown = notice ?: return@LaunchedEffect
             noticeText = if (shown is ShelfNotice.NotServed) notServed else withdrawn
@@ -470,6 +472,30 @@ fun RpmApp(
                                         onNextView = settings::nextDefaultView,
                                         karaoke = settings.karaoke && ownFace?.supporter == true,
                                         casting = services.casting,
+                                        // The heart, for a track of the person's own collection while it is the one
+                                        // open: its mark is in that collection, and it is set the way a track's menu
+                                        // sets it (OwnEdits.mark), with the same notice.
+                                        favourite = (libraryState as? LibraryState.Ready)
+                                            ?.takeIf { shelfOnScreen == Shelf.Own }
+                                            ?.let { ready ->
+                                                TrackRef.parse(nowPlaying?.mediaId.orEmpty())
+                                                    ?.takeIf { it.shelf == Shelf.Own }
+                                                    ?.let { ref -> ready.collection.tracksById[ref.rpmId]?.tags?.favorite == true }
+                                            },
+                                        onFavourite = { favorite ->
+                                            val ref = TrackRef.parse(nowPlaying?.mediaId.orEmpty())
+                                            val title = nowPlaying?.title.orEmpty()
+                                            if (ref != null) services.scope.launch {
+                                                val saved = services.ownWriter.mark(ref.rpmId, favorite)
+                                                noticeText = when {
+                                                    saved && favorite -> heartContext.getString(R.string.Viz_FavoriteAdded, title)
+                                                    saved -> heartContext.getString(R.string.Viz_FavoriteRemoved, title)
+                                                    favorite -> heartContext.getString(R.string.Tv_FavoriteFailed)
+                                                    else -> heartContext.getString(R.string.Tv_UnfavoriteFailed)
+                                                }
+                                                noticeCount++
+                                            }
+                                        },
                                         onBack = { playerShown = false },
                                     )
                                 }

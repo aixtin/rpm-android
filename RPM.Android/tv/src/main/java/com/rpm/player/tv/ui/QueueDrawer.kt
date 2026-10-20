@@ -307,32 +307,23 @@ fun QueueDrawer(player: Player, images: ImageLoader, backdrop: Backdrop, open: B
 }
 
 /**
- * The drawer's head (PegasusChrome.Browse.cs): the three tabs, with Now playing lit (white SemiBold) and the
- * others dim (`#8CFFFFFF`), 12 drawer units, and the round close key at the right. The television's
- * drawer holds the queue alone, so the other two tabs are only drawn and are not focus stops.
+ * The drawer's head: "Now playing" (white SemiBold, 12 drawer units) and the round close key at the right. The
+ * desktop's drawer has Playlists and Albums tabs beside it (PegasusChrome.Browse.cs); the television's holds the
+ * queue alone, so it names that and nothing else.
  */
 @Composable
 private fun DrawerHead(onClose: () -> Unit, modifier: Modifier) {
     Row(Modifier.fillMaxWidth().padding(start = 8.px, end = 10.px, bottom = 6.px), verticalAlignment = Alignment.CenterVertically) {
-        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.px)) {
-            Tab(stringResource(R.string.Viz_BrowseQueue), lit = true)
-            Tab(stringResource(R.string.Viz_BrowsePlaylists), lit = false)
-            Tab(stringResource(R.string.Viz_BrowseAlbums), lit = false)
-        }
+        Text(
+            stringResource(R.string.Viz_BrowseQueue),
+            style = ui(12.tds, FontWeight.SemiBold),
+            color = Ink.Words,
+            modifier = Modifier.weight(1f).padding(horizontal = 8.ds, vertical = 3.ds),
+        )
         DeskButton(onClick = onClose, corner = 13.ds, modifier = modifier.size(26.ds)) {
             Glyph(Fa.CLOSE, 11.tds, Ink.Dim)
         }
     }
-}
-
-@Composable
-private fun Tab(text: String, lit: Boolean) {
-    Text(
-        text,
-        style = ui(12.tds, if (lit) FontWeight.SemiBold else FontWeight.Normal),
-        color = if (lit) Ink.Words else Color(0x8CFFFFFF),
-        modifier = Modifier.padding(horizontal = 8.ds, vertical = 3.ds),
-    )
 }
 
 /** How long the drawer takes to slide in or out. The player's push of the picture takes the same time. */

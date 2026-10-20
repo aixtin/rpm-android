@@ -116,6 +116,11 @@ fun PlayerScreen(
     /** Whether the sung line lights word by word ([PlayerSettings.karaoke]). */
     karaoke: Boolean,
     casting: Casting,
+    /** Whether the track playing is one of the person's favourites, or null where they cannot set it (a station,
+     * a track of a collection someone shares). */
+    favourite: Boolean?,
+    /** Sets the favourite mark on the track playing (true) or takes it off (false). */
+    onFavourite: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
     var controlsShown by remember { mutableStateOf(true) }
@@ -268,9 +273,25 @@ fun PlayerScreen(
         if (queueClosed > 0) runCatching { queueKey.requestFocus() }
     }
 
-    // The drawer pushes the whole picture to the right by its own width (0.36 of the screen), and the room with it.
-    SideEffect { room.push = if (queueOpen) DRAWER_SHARE else 0f }
-    val push by animateFloatAsState(if (queueOpen) DRAWER_SHARE else 0f, tween(DRAWER_GLIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "push")
+    // The heart as last pressed, until the collection says the same. A mark is written at once, but the collection
+    // it shows in is rebuilt from it, which takes up to half a minute on a TV box: without this the heart showed the
+    // old state that long, and a second press repeated the first. Forgotten when the track changes, or after
+    // [HEART_HELD_MS] if the collection never agrees (a write that failed, which the notice says).
+    var pendingHeart by remember(nowPlaying?.mediaId) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(favourite, pendingHeart) {
+        if (pendingHeart == null) return@LaunchedEffect
+        if (favourite == pendingHeart) pendingHeart = null else {
+            delay(HEART_HELD_MS)
+            pendingHeart = null
+        }
+    }
+    val heart = favourite?.let { pendingHeart ?: it }
+
+    // The drawer pushes the whole picture to the right, and the room with it: by half its own width (0.36 of the
+    // screen), which centres the picture in the room the drawer leaves. Pushed by the whole width, the record, the
+    // lines and the keys ran off the right edge of the screen.
+    SideEffect { room.push = if (queueOpen) PICTURE_PUSH else 0f }
+    val push by animateFloatAsState(if (queueOpen) PICTURE_PUSH else 0f, tween(DRAWER_GLIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "push")
 
     // Passed down as a function and read in the keys' layer, so the 140 and 420 ms fades redraw the keys
     // without recomposing the player's views on every frame.
@@ -339,6 +360,11 @@ fun PlayerScreen(
                     viewNamed = PegasusView.entries[(view.ordinal + 1) % PegasusView.entries.size]
                 },
                 canFocus = shown && !queueOpen,
+                favourite = heart,
+                onFavourite = { to ->
+                    pendingHeart = to
+                    onFavourite(to)
+                },
                 above = if (seekReachable) seekKey else FocusRequester.Cancel,
                 playKey = playKey,
                 queueKey = queueKey,
@@ -450,6 +476,13 @@ private fun RoomKeys(keysAlpha: () -> Float, seek: @Composable () -> Unit, row: 
  * desktop's drawer takes. */
 private const val DRAWER_SHARE = 0.36f
 
+/** How far the picture moves aside while the drawer is open, as a share of the screen: half the drawer, so it is
+ * centred in what is left of the screen. */
+private const val PICTURE_PUSH = DRAWER_SHARE / 2
+
+/** How long a pressed heart is shown before the collection must have caught up with it. */
+private const val HEART_HELD_MS = 90_000L
+
 /** How long the controls stay up without a key press (the desktop's TransportIdle). */
 const val HIDE_AFTER_MS = 5_000L
 private const val FADE_IN_MS = 140
@@ -491,8 +524,8 @@ private fun LyricsView(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Bool
  * right, where the volume bar is on the desktop. This leaves room on both sides of the middle keys: with the
  * lyric key on the left in the spread view, the left keys would run into previous.
  *
- * The heart is drawn as the desktop draws one that it cannot set (at 0.35), because the TV cannot set a
- * favourite yet.
+ * The heart sets the track playing as a favourite, or takes it off: outlined until it is one, filled after. On a
+ * track of a collection someone shares it is drawn as the desktop draws one it cannot set (at 0.35).
  *
  * A [station] shows the play key and nothing else: a live stream has no queue, no previous or next and
  * nothing to go back to in the row. The one exception is the cast key while the music is on a Cast device,
@@ -512,6 +545,8 @@ private fun TransportRow(
     layoutKey: FocusRequester,
     onLayout: () -> Unit,
     canFocus: Boolean,
+    favourite: Boolean?,
+    onFavourite: (Boolean) -> Unit,
     above: FocusRequester,
     playKey: FocusRequester,
     queueKey: FocusRequester,
@@ -530,8 +565,21 @@ private fun TransportRow(
                 if (controller != null) {
                     TransportKey(Fa.BARS, 15.ts, 36.s, stringResource(R.string.Viz_Queue), onQueue, keys.focusRequester(queueKey))
                 }
-                Box(Modifier.size(36.s).graphicsLayer { alpha = 0.35f }, contentAlignment = Alignment.Center) {
-                    Glyph(Fa.HEART, 14.ts, Ink.Key, regular = true)
+                if (favourite != null) {
+                    // Outlined until the track is a favourite, then filled; OK sets it or takes it off.
+                    val heartLabel = stringResource(if (favourite) R.string.Track_UnsetFavorite else R.string.Track_SetFavorite)
+                    DeskButton(
+                        onClick = { onFavourite(!favourite) },
+                        corner = 18.s,
+                        modifier = keys.size(36.s).semantics { contentDescription = heartLabel },
+                    ) {
+                        Glyph(Fa.HEART, 14.ts, Ink.Key, regular = !favourite)
+                    }
+                } else {
+                    // Drawn as the desktop draws a heart it cannot set (at 0.35): a track of a collection someone shares.
+                    Box(Modifier.size(36.s).graphicsLayer { alpha = 0.35f }, contentAlignment = Alignment.Center) {
+                        Glyph(Fa.HEART, 14.ts, Ink.Key, regular = true)
+                    }
                 }
             }
         }

@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -53,7 +52,9 @@ import com.rpm.player.core.playback.NowPlaying
  * line fades by its distance from the sung line (1, 0.42, 0.24, 0.12, then nothing). The sung line is white and
  * the others are `#EAEAEA`. In a rest (between verses, or an instrumental that nobody marked) the words go and
  * three dots fill in across the rest. The lines of the next stretch appear only when it starts. Before the first
- * line, the song's title and artist are shown with the same dots counting in.
+ * line (an instrumental intro) only the same dots are shown, counting in to it: the title and artist used to stand
+ * there too, which read as part of the lyrics and repeated the lines under the record. While the next track's sheet
+ * is still being read ([LyricSheet.EMPTY]) the dots stand faint, unfilled, so the column says lyrics are coming.
  *
  * With [karaoke] the sung line lights word by word, and each word brightens as its turn comes. The timing is
  * taken from the moments that a desktop measured off the record, where it has them ([measured],
@@ -146,20 +147,16 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
                 }
             }
         }
-        // The intro: nothing is being sung yet, so show the song's name and the dots counting in to the first line.
+        // The intro: nothing is being sung yet, so only the dots, counting in to the first line, as in a rest. A sheet
+        // not read yet has no first line, and its dots stay faint.
         val opening by animateFloatAsState(if (at < 0) 1f else 0f, tween(350), label = "opening")
         if (opening > 0f) {
-            Column(
-                Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 24.px).graphicsLayer { alpha = opening },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(size * 0.75f),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(nowPlaying?.title.orEmpty(), style = ui(size.value.sp, FontWeight.SemiBold), color = Color.White, textAlign = TextAlign.Center, maxLines = 3)
-                    Text(nowPlaying?.artist.orEmpty(), style = ui((size.value * 0.82f).sp, FontWeight.Medium), color = SUNG_NOT.copy(alpha = 0.66f), textAlign = TextAlign.Center, maxLines = 2)
-                }
-                val first = sheet.lines.firstOrNull()?.seconds ?: 0.0
-                Dots(through = { if (first <= 0.0) 1f else (now / first).toFloat().coerceIn(0f, 1f) }, dot = size * 0.32f)
+            Box(Modifier.align(Alignment.Center).graphicsLayer { alpha = opening }) {
+                val first = sheet.lines.firstOrNull()?.seconds
+                Dots(
+                    through = { if (first == null) 0f else if (first <= 0.0) 1f else (now / first).toFloat().coerceIn(0f, 1f) },
+                    dot = size * 0.32f,
+                )
             }
         }
     }

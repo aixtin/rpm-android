@@ -163,6 +163,17 @@ class PlayerSettings(context: Context) {
         prefs.edit().putBoolean(KEY_KARAOKE, karaoke).apply()
     }
 
+    /** Whether the player shows the lyrics, as the player's lyric key last left it; off by default. Kept here and
+     * not in the player, which forgets everything when Back leaves it: the lyrics went off every time the person
+     * stepped out to the collection and came back. A track without synced lyrics still shows the ordinary view. */
+    var lyricsOn by mutableStateOf(prefs.getBoolean(KEY_LYRICS, false))
+        private set
+
+    fun switchLyrics() {
+        lyricsOn = !lyricsOn
+        prefs.edit().putBoolean(KEY_LYRICS, lyricsOn).apply()
+    }
+
     /** How bright and saturated the screens are drawn ([PictureLook]); shown at once as it changes. */
     var picture by mutableStateOf(prefs.getString(KEY_PICTURE, null)?.let { name -> PictureLook.entries.firstOrNull { it.name == name } } ?: PictureLook.Standard)
         private set
@@ -217,6 +228,7 @@ class PlayerSettings(context: Context) {
         private const val KEY_ALBUM_CAROUSEL = "albums.carousel"
         private const val KEY_ALBUM_ORDER = "albums.order"
         private const val KEY_KARAOKE = "lyrics.karaoke"
+        private const val KEY_LYRICS = "lyrics.shown"
         private const val KEY_SETUP = "setup.pending"
         private const val KEY_MINI = "mini.place"
         private const val KEY_LEGEND = "screens.legend"

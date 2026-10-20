@@ -177,7 +177,8 @@ private fun read(player: Player): NowPlaying? {
 
 
 /** One track to queue, from [shelf], with the names, cover and disc it is shown under. A list mixes albums,
- * so each track carries its own. [radio] names the song radio that queued it, or is null (see [SongRadioRuns]). */
+ * so each track carries its own. [radio] names the song radio that queued it, or is null (see [SongRadioRuns]).
+ * [upNext] says the person added it to a queue already playing ([EXTRA_UP_NEXT]). */
 data class Queued(
     val shelf: Shelf,
     val track: CloudTrack,
@@ -186,6 +187,7 @@ data class Queued(
     val cover: Cover?,
     val disc: DiscArt?,
     val radio: String? = null,
+    val upNext: Boolean = false,
 )
 
 /** One song of [collection] to queue, with the names, cover and disc of the record it is on. */
@@ -229,18 +231,19 @@ fun Player.tune(station: RadioStation, logoStamp: String, detail: String?) {
     play()
 }
 
-/** Puts [tracks], in order, straight after the track playing, or plays them when nothing is queued. */
+/** Puts [tracks], in order, straight after the track playing, or plays them when nothing is queued. Added to a
+ * queue that plays, they are marked as the person's ([EXTRA_UP_NEXT]); played into an empty one, they are the list. */
 fun Player.playNext(tracks: List<Queued>) {
     if (tracks.isEmpty()) return
     if (mediaItemCount == 0) return playQueue(tracks, 0)
-    addMediaItems(currentMediaItemIndex + 1, tracks.map(::mediaItemOf))
+    addMediaItems(currentMediaItemIndex + 1, tracks.map { mediaItemOf(it.copy(upNext = true)) })
 }
 
-/** Puts [tracks] at the end of the queue, or plays them when nothing is queued. */
+/** Puts [tracks] at the end of the queue, or plays them when nothing is queued. Marked as [playNext] marks them. */
 fun Player.addToQueue(tracks: List<Queued>) {
     if (tracks.isEmpty()) return
     if (mediaItemCount == 0) return playQueue(tracks, 0)
-    addMediaItems(tracks.map(::mediaItemOf))
+    addMediaItems(tracks.map { mediaItemOf(it.copy(upNext = true)) })
 }
 
 /** The song radio a queued item belongs to, in its metadata extras. Not kept with the saved queue: a radio ends
@@ -266,6 +269,7 @@ internal fun mediaItemOf(q: Queued): MediaItem =
                         // What the playback service levels the track from (LevelSink).
                         putLevel(Level.of(q.track.tags))
                         q.radio?.let { putString(EXTRA_RADIO, it) }
+                        if (q.upNext) putBoolean(EXTRA_UP_NEXT, true)
                     },
                 )
                 .build(),

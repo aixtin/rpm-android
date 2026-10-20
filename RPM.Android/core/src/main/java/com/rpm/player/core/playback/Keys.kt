@@ -33,18 +33,28 @@ object KeyRules {
     }
 
     /**
-     * An arrow or OK on the player screen while its controls are hidden: OK pauses and resumes, Left
-     * and Right go 10 seconds back and forward. Google Play requires this of every TV app (TV-PC).
-     * [repeat] is the key's repeat count: a held arrow keeps seeking, a held OK toggles once.
-     * Null for every other key, which the screen handles itself.
+     * An arrow on the player screen while its controls are hidden: Left and Right go 10 seconds back
+     * and forward, and a held arrow keeps seeking, every repeat a step. Null for every other key, which
+     * the screen handles itself.
+     *
+     * OK is not an action here. It used to pause, and a person who pressed it only to see the controls
+     * stopped the music; now it only brings the controls up ([raisesControls]), and pausing is the play
+     * key's job, or the remote's own play/pause key ([forMediaKey]), which works on every screen.
      */
-    fun forHiddenControls(keyCode: Int, repeat: Int, playing: Boolean): PlayerAction? = when (keyCode) {
-        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-            if (repeat > 0) null else if (playing) PlayerAction.PAUSE else PlayerAction.PLAY
+    fun forHiddenControls(keyCode: Int): PlayerAction? = when (keyCode) {
         KeyEvent.KEYCODE_DPAD_LEFT -> PlayerAction.BACK
         KeyEvent.KEYCODE_DPAD_RIGHT -> PlayerAction.FORWARD
         else -> null
     }
+
+    /** Whether a key on the player screen with its controls hidden brings them up (with the play key
+     * focused): OK, Up and Down. It only shows them; nothing is played or paused. */
+    fun raisesControls(keyCode: Int): Boolean =
+        isOk(keyCode) || keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+
+    /** OK, as the remotes send it: the d-pad's centre, or Enter from a keyboard or a remote that acts as one. */
+    fun isOk(keyCode: Int): Boolean =
+        keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
 }
 
 /**

@@ -113,6 +113,8 @@ object Fa {
     const val SHUFFLE = ''
     const val ANTENNA = ''
     const val GRIP = ''
+    /** An arrow up and down (arrows-alt-v): the queue drawer's key that turns rearranging on. */
+    const val ARROWS_V = ''
     const val CLOSE = ''
     const val CHECK = ''
     const val COMPRESS = ''
@@ -129,6 +131,11 @@ object Fa {
     const val PIN = ''
     /** The settings' Display section. */
     const val TV = ''
+    /** The cast menu's devices ([castLines]): a speaker, a speaker group or a stereo pair, and a screen that is
+     * cast to (a Chromecast, a Google TV), told from [TV], which is this TV itself. */
+    const val SPEAKER = '\uf8df'
+    const val SPEAKERS = '\uf8e0'
+    const val TV_MUSIC = '\uf8e6'
     /** The menus' entries, by the desktop's menus (AlbumMenuFactory, TrackMenuFactory, PlaylistView): play
      * next is the step forward, a new playlist the plus, taking a row out of a list the minus. */
     const val STEP_FORWARD = '\uf051'

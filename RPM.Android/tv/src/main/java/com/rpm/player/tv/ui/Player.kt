@@ -31,7 +31,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -78,8 +77,10 @@ import kotlinx.coroutines.withContext
 /**
  * The player screen, laid out as the desktop's Pegasus player (PegasusChrome.xaml). The remote rules are:
  *
- * - Controls hidden: OK pauses and resumes, and Left and Right seek 10 seconds ([KeyRules.forHiddenControls]).
- *   Up or Down shows the controls with the play key focused.
+ * - Controls hidden: OK, Up or Down shows the controls with the play key focused ([KeyRules.raisesControls]), and
+ *   nothing else: OK does not pause, so a press to see the keys never stops the music. The rest of that press (its
+ *   repeats and its release) is kept from the play key that now has the focus, or the release would press it. Left
+ *   and Right seek 10 seconds ([KeyRules.forHiddenControls]). The remote's play/pause key works on every screen.
  * - Controls shown: the arrows move the focus along the row and OK presses the focused key. Up from the row
  *   reaches the seek bar of a track whose length is known. There, Left and Right move the playhead
  *   ([SeekKeys]) and Down goes back to the play key.
@@ -94,6 +95,10 @@ import kotlinx.coroutines.withContext
  * the three layouts (Full, Compact, Visuals only) and keeps the choice, and the new layout's name shows at the
  * top for a moment. The bare room has its keys at its foot, as the lyrics have, so the way back out of it is on
  * screen too. A station has no seek bar and only the play key.
+ *
+ * The lyric key's choice is a setting ([PlayerSettings.lyricsOn]), so the lyrics are still on after Back and a
+ * return. Between tracks the layout holds still: it follows the last sheet that was read, not the empty one of a
+ * track still being looked up, and it moves only once the next track's sheet is known and says otherwise.
  *
  * The cast key, at the right of the row, opens the cast menu ([castLines]) over the player. The menu lists This
  * TV and the Cast devices on the network, with the one in use ticked. While a device is in use the key is lit
@@ -115,6 +120,11 @@ fun PlayerScreen(
     onNextView: () -> Unit,
     /** Whether the sung line lights word by word ([PlayerSettings.karaoke]). */
     karaoke: Boolean,
+    /** Whether the person wants the lyrics shown, where the track has synced ones ([PlayerSettings.lyricsOn]). It is
+     * kept outside the player, which forgets its own state when Back leaves it. */
+    lyricsWanted: Boolean,
+    /** The lyric key: switches [lyricsWanted]. */
+    onLyricsKey: () -> Unit,
     casting: Casting,
     /** Whether the track playing is one of the person's favourites, or null where they cannot set it (a station,
      * a track of a collection someone shares). */
@@ -149,8 +159,13 @@ fun PlayerScreen(
         if (noticeShown == notice) noticeShown = null
     }
     var sheet by remember { mutableStateOf(LyricSheet.EMPTY) }
-    // The person's choice, kept across tracks. A track without lyrics shows the ordinary view.
-    var lyricsWanted by rememberSaveable { mutableStateOf(false) }
+    // Whether the last sheet read had synced lyrics, which is what the layout follows. Unlike [sheet] it is not
+    // cleared as the track changes. It was, through [sheet], and every change of track slid the lyrics away (the
+    // compact view's record glided back to the middle, the other views swapped to the room) and slid them back half
+    // a second later when the lookup came back. Now the layout holds while the next sheet is read, the lyric side
+    // showing only the dots, and moves once that sheet is known and only if it has no synced lyrics. On opening, the
+    // player assumes the lyrics are there if they are wanted, so a return to the player does not slide them in.
+    var synced by remember { mutableStateOf(lyricsWanted) }
     // The layout in the settings (PlayerSettings), which the layout key steps through.
     val view = defaultView
     // The layout's name at the top for a moment after the layout key changes it; null otherwise.
@@ -194,12 +209,17 @@ fun PlayerScreen(
     LaunchedEffect(nowPlaying?.mediaId) {
         sheet = LyricSheet.EMPTY
         // A station has no lyrics to look up.
-        val playing = nowPlaying?.takeIf { it.station == null } ?: return@LaunchedEffect
+        val playing = nowPlaying?.takeIf { it.station == null } ?: run {
+            synced = false
+            return@LaunchedEffect
+        }
         sheet = withContext(Dispatchers.IO) {
             lrcLib.sheet(playing.artist, playing.title, playing.album, playing.durationMs / 1000.0)
         }
+        synced = sheet.isSynced
     }
-    val lyricsShown = lyricsWanted && sheet.isSynced
+    val lyricsKnown = synced && !station
+    val lyricsShown = lyricsWanted && lyricsKnown
 
     // The record's pressing and the sleeve's frame, from the cover or the station's logo. The cover reading
     // follows the current picture, so a new picture replaces the old reading. The room's colours are the
@@ -224,6 +244,8 @@ fun PlayerScreen(
 
     var keyPresses by remember { mutableIntStateOf(0) }
     val surface = remember { FocusRequester() }
+    // True from an OK that brought the controls up until that OK is released: its repeats and release are swallowed.
+    var okRaised by remember { mutableStateOf(false) }
     val playKey = remember { FocusRequester() }
     val queueKey = remember { FocusRequester() }
     val seekKey = remember { FocusRequester() }
@@ -246,9 +268,8 @@ fun PlayerScreen(
     }
     BackHandler(enabled = !shown && !queueOpen, onBack = onBack)
 
-    // A track or a station that pauses, by OK or by the remote's play key, brings the controls up with the
-    // play key focused. They stay up while it is paused, so the screen shows that it is paused and OK resumes.
-    // The bare room has no keys: there, OK on the surface resumes.
+    // A track or a station that pauses, by the play key or by the remote's play/pause key, brings the controls up
+    // with the play key focused. They stay up while it is paused, so the screen shows that it is paused and OK resumes.
     val pausedTrack = nowPlaying != null && !nowPlaying.playing
     LaunchedEffect(pausedTrack) {
         if (pausedTrack) controlsShown = true
@@ -287,10 +308,11 @@ fun PlayerScreen(
     }
     val heart = favourite?.let { pendingHeart ?: it }
 
-    // The drawer pushes the whole picture to the right, and the room with it: by half its own width (0.36 of the
-    // screen), which centres the picture in the room the drawer leaves. Pushed by the whole width, the record, the
-    // lines and the keys ran off the right edge of the screen.
-    SideEffect { room.push = if (queueOpen) PICTURE_PUSH else 0f }
+    // The drawer pushes the whole picture to the right: by half its own width (0.36 of the screen), which centres
+    // the picture in the room the drawer leaves. Pushed by the whole width, the record, the lines and the keys ran
+    // off the right edge of the screen. The room stays put behind the drawer's smoked glass, which shows it moving.
+    // While the drawer is up, the pushed picture is recorded for its glass to blur ([rememberDrawerPicture]).
+    val drawerPicture = rememberDrawerPicture()
     val push by animateFloatAsState(if (queueOpen) PICTURE_PUSH else 0f, tween(DRAWER_GLIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "push")
 
     // Passed down as a function and read in the keys' layer, so the 140 and 420 ms fades redraw the keys
@@ -307,13 +329,25 @@ fun PlayerScreen(
             .fillMaxSize()
             .focusRequester(surface)
             .onPreviewKeyEvent { event ->
-                if (queueOpen || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (queueOpen) return@onPreviewKeyEvent false
+                val native = event.nativeKeyEvent
+                // The OK that brought the controls up is used up by it. Without this its release reached the play key,
+                // focused by then, and a clickable clicks on the release after a press it saw (a held OK's repeats
+                // are such a press), so the OK paused after all. A fresh press ends it, in case the release was lost.
+                if (okRaised && KeyRules.isOk(native.keyCode)) {
+                    if (event.type == KeyEventType.KeyUp) {
+                        okRaised = false
+                        return@onPreviewKeyEvent true
+                    }
+                    if (native.repeatCount > 0) return@onPreviewKeyEvent true
+                    okRaised = false
+                }
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 keyPresses += 1
                 if (shown) return@onPreviewKeyEvent false
-                val native = event.nativeKeyEvent
-                val action = KeyRules.forHiddenControls(event.key.nativeKeyCode, native.repeatCount, nowPlaying?.playing == true)
-                    // A live station has nowhere to seek to; OK still pauses it.
-                    ?.takeUnless { station && (it == PlayerAction.BACK || it == PlayerAction.FORWARD) }
+                val action = KeyRules.forHiddenControls(event.key.nativeKeyCode)
+                    // A live station has nowhere to seek to.
+                    ?.takeUnless { station }
                 when {
                     action != null -> {
                         if ((action == PlayerAction.BACK || action == PlayerAction.FORWARD) && controller?.isCurrentMediaItemSeekable != true) {
@@ -322,9 +356,9 @@ fun PlayerScreen(
                         controller?.perform(action)
                         true
                     }
-                    native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
-                        native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    KeyRules.raisesControls(native.keyCode) -> {
                         controlsShown = true
+                        if (KeyRules.isOk(native.keyCode)) okRaised = true
                         true
                     }
                     else -> false
@@ -351,8 +385,8 @@ fun PlayerScreen(
                 nowPlaying = nowPlaying,
                 controller = controller,
                 station = station,
-                lyricKey = if (sheet.isSynced) lyricsShown else null,
-                onLyrics = { lyricsWanted = !lyricsWanted },
+                lyricKey = if (lyricsKnown) lyricsShown else null,
+                onLyrics = onLyricsKey,
                 onQueue = { queueOpen = true },
                 layoutKey = layoutKey,
                 onLayout = {
@@ -376,7 +410,7 @@ fun PlayerScreen(
             )
         }
 
-        Box(Modifier.fillMaxSize().graphicsLayer { translationX = push * size.width }) {
+        Box(Modifier.fillMaxSize().then(if (queueOpen || drawerLeaving) Modifier.backdropSource(drawerPicture) else Modifier).graphicsLayer { translationX = push * size.width }) {
             when {
                 // The compact view keeps its record and puts the lyrics beside it. The other views give the lyrics the screen.
                 view == PegasusView.Centred -> PegasusCentred(
@@ -419,7 +453,7 @@ fun PlayerScreen(
             QueueDrawer(
                 controller,
                 images,
-                backdrop,
+                drawerPicture,
                 open = queueOpen,
                 onClose = {
                     // Closes only once: a Back that reaches the drawer while it slides out does nothing more.

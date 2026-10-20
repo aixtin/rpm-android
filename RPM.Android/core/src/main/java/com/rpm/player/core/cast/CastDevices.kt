@@ -14,12 +14,31 @@ data class CastDevice(
     /** A speaker group or a stereo pair. Google refuses a cast to a member of either (`NOT_ALLOWED`), so the
      * group is what the menu must offer. */
     val isGroup: Boolean,
+    /** What the device says it can do (`ca`), a bitmask; 0 when it does not say. */
+    val capabilities: Int = 0,
 ) {
+    /**
+     * Whether the device shows pictures: a Chromecast, a Google TV, a TV with Cast built in, a Nest Hub. Read from
+     * the video out bit of [capabilities], which speakers and groups never set; a device that advertises no `ca`
+     * is judged by its model's name instead. The menu draws a screen or a speaker by it.
+     */
+    val hasScreen: Boolean
+        get() = if (capabilities != 0) (capabilities and CA_VIDEO_OUT) != 0
+        else !isGroup && SCREEN_MODELS.any { model.contains(it, ignoreCase = true) }
+
     companion object {
-        /** TXT record keys: the friendly name, the model, and the id that stays the same when the address changes. */
+        /** TXT record keys: the friendly name, the model, the id that stays the same when the address changes,
+         * and the capabilities. */
         const val KEY_NAME = "fn"
         const val KEY_MODEL = "md"
         const val KEY_ID = "id"
+        const val KEY_CAPABILITIES = "ca"
+
+        /** The capability bit of a device with a picture out (Cast's `VIDEO_OUT`). */
+        const val CA_VIDEO_OUT = 1
+
+        /** Words in the models of devices with a screen, for a device without `ca`. */
+        private val SCREEN_MODELS = listOf("chromecast", "tv", "shield", "hub", "display")
 
         /** A device from its resolved service, or null if the service has no address. */
         fun of(txt: Map<String, String>, host: String?, port: Int): CastDevice? {
@@ -35,6 +54,7 @@ data class CastDevice(
                 port = port,
                 // A group and a stereo pair both advertise `Google Cast Group` as their model.
                 isGroup = model.contains("group", ignoreCase = true),
+                capabilities = txt[KEY_CAPABILITIES]?.trim()?.toIntOrNull() ?: 0,
             )
         }
     }

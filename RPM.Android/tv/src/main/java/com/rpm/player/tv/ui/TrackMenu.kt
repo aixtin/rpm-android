@@ -61,7 +61,10 @@ import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.Layout
@@ -121,8 +124,9 @@ sealed interface MenuLine
 /** An entry, by its string. */
 data class MenuChoice(@StringRes val label: Int, val glyph: Char? = null, val outline: Boolean = false, val act: () -> Unit) : MenuLine
 
-/** An entry by its text, ticked when it is the one in force (WinUI's ToggleMenuFlyoutItem). */
-data class MenuTick(val text: String, val ticked: Boolean, val act: () -> Unit) : MenuLine
+/** An entry by its text, ticked when it is the one in force (WinUI's ToggleMenuFlyoutItem). Its [glyph] is drawn in
+ * the glyphs' column after the tick's, so the cast menu can say what each device is. */
+data class MenuTick(val text: String, val ticked: Boolean, val glyph: Char? = null, val act: () -> Unit) : MenuLine
 
 /** An entry that opens more entries in the menu's place (WinUI's MenuFlyoutSubItem). Back returns. */
 data class MenuSub(@StringRes val label: Int, val lines: List<MenuLine>, val glyph: Char? = null) : MenuLine
@@ -150,14 +154,15 @@ data class MenuAction(@StringRes val label: Int, val glyph: Char? = null, val ac
 /** Whether the remote can stop on a line. */
 private val MenuLine.isEntry: Boolean get() = this !is MenuGap && this !is MenuNote
 
-/** The glyph drawn before a line's words, if it has one ([MenuLine]). A tick's column is its own. */
+/** The glyph drawn before a line's words, if it has one ([MenuLine]). A tick's column is its own, before it. */
 private val MenuLine.glyph: Char? get() = when (this) {
     is MenuChoice -> glyph
     is MenuSub -> glyph
     is MenuName -> glyph
     is MenuStars -> glyph
     is MenuAction -> glyph
-    is MenuTick, is MenuNote, MenuGap -> null
+    is MenuTick -> glyph
+    is MenuNote, MenuGap -> null
 }
 
 /**
@@ -294,12 +299,26 @@ private fun MenuOpening(state: RowMenuState, opened: RowMenuState.Opened, openin
     val owner = LocalFocusSpot.current
     // One opening lasts from the press to the end of its fade out. A submenu shown in the menu's place is the same
     // opening and keeps its picture and its row.
-    // Where the focus was when the menu opened: the row that the menu is about.
-    val anchor = remember(opening) { owner?.target?.rect }
+    // Where the focus was when the menu opened: the row that the menu is about, grown (the card is placed beside
+    // it) and bare (what is kept sharp).
+    val anchor = remember(opening) { owner?.target }
     val picture = remember(opening) { glass?.let { Backdrop(it.backdrop.layer).apply { ground = it.backdrop.ground } } }
     var taken by remember(opening) { mutableStateOf<Boolean?>(if (picture == null) false else null) }
+    // The layer under the menu draws its focus bare while the menu is open, until its fade out begins, when the
+    // focus goes back to the row and grows on it again ([FocusSpot.quiet]). Before the capture below, which runs later.
+    DisposableEffect(owner, opening, leaving) {
+        val over = owner?.takeIf { !leaving }
+        over?.menuOpened()
+        onDispose { over?.menuClosed() }
+    }
     LaunchedEffect(opening) {
-        if (picture != null) taken = picture.capture()
+        if (picture != null) {
+            // The row is drawn bare from the next frame. The picture is taken once that frame has been drawn, so the
+            // blur holds no grown row and no glow round it.
+            repeat(BARE_FRAMES) { withFrameNanos { } }
+            // Blurred as deep as the side menu's live glass, so the card is that glass.
+            taken = picture.capture(DEEP_RADIUS)
+        }
     }
     if (glass != null) {
         DisposableEffect(opening) {
@@ -331,8 +350,9 @@ private fun MenuOpening(state: RowMenuState, opened: RowMenuState.Opened, openin
             .graphicsLayer { alpha = fade.value }
             .onPreviewKeyEvent { it.nativeKeyEvent.downTime < shownAt },
     ) {
-        val hole = anchor?.translate(-origin.x, -origin.y)
-        MenuShade(picture?.takeIf { blurred }, hole, Modifier.fillMaxSize())
+        val hole = anchor?.rect?.translate(-origin.x, -origin.y)
+        val bare = anchor?.let { RoundRect(it.bare.translate(-origin.x, -origin.y), CornerRadius(it.bareCorner)) }
+        MenuShade(picture?.takeIf { blurred }, bare, Modifier.fillMaxSize())
         key(opened) {
             val naming = opened.naming
             val rating = opened.rating
@@ -348,31 +368,30 @@ private fun MenuOpening(state: RowMenuState, opened: RowMenuState.Opened, openin
     }
 }
 
-/** The screen behind the menu: its blurred picture and `#33000000`, or the shade alone. It covers everything
- * except [hole], where the screen itself shows through. */
+/** The screen behind the menu: its blurred picture and `#33000000`, or the shade alone. The blur covers everything
+ * except [hole], the row's own bounds and corners, where the screen itself shows through: the row drawn bare
+ * ([FocusSpot.quiet]). The shade covers the hole too, so no lighter box is left round the row. */
 @Composable
-private fun MenuShade(picture: Backdrop?, hole: Rect?, modifier: Modifier) {
+private fun MenuShade(picture: Backdrop?, hole: RoundRect?, modifier: Modifier) {
     val image = picture?.blurred
     val ground = picture?.ground ?: Color.Black
+    val cut = remember(hole) { hole?.let { Path().apply { addRoundRect(it) } } }
     Canvas(modifier) {
-        fun DrawScope.shade() {
-            if (image != null) {
-                drawRect(ground)
-                drawImage(
-                    image,
-                    srcOffset = IntOffset.Zero,
-                    srcSize = IntSize(image.width, image.height),
-                    dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-                    filterQuality = FilterQuality.Low,
-                )
-            }
-            drawRect(Color(0x33000000))
+        fun DrawScope.blur() {
+            val picture = image ?: return
+            drawRect(ground)
+            drawImage(
+                picture,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(picture.width, picture.height),
+                dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                filterQuality = FilterQuality.Low,
+            )
         }
-        if (hole == null) {
-            shade()
-        } else {
-            clipRect(hole.left, hole.top, hole.right, hole.bottom, ClipOp.Difference) { shade() }
+        if (image != null) {
+            if (cut == null) blur() else clipPath(cut, ClipOp.Difference) { blur() }
         }
+        drawRect(Color(0x33000000))
     }
 }
 
@@ -448,7 +467,7 @@ private fun MenuCard(
                                     onClose()
                                     line.act()
                                 }, modifier = focus)
-                                is MenuTick -> MenuEntryRow(line.text, ticked = line.ticked, icons = icons, more = false, onClick = {
+                                is MenuTick -> MenuEntryRow(line.text, ticked = line.ticked, icons = icons, glyph = line.glyph, more = false, onClick = {
                                     onClose()
                                     line.act()
                                 }, modifier = focus)
@@ -861,6 +880,10 @@ private const val MENU_FADE_MS = 160
 
 /** The menu and its shade fade out together over this time. The side menu closes in the same time. */
 private const val MENU_OUT_MS = 110
+
+/** How many frames a menu waits before it takes its picture of the screen: one for the row under it to be drawn
+ * bare, one for that drawing to be done. */
+private const val BARE_FRAMES = 2
 
 /** How many frames a new card requests the focus, until it holds it. */
 private const val FOCUS_ASKS = 4

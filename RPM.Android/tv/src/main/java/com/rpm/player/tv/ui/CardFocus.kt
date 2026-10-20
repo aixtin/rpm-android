@@ -13,6 +13,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +53,7 @@ fun CardButton(
             val w = bounds.width * CARD_GROW
             val h = bounds.height * CARD_GROW
             val centre = bounds.center
-            spot.show(me, Spot(Rect(centre.x - w / 2, centre.y - h / 2, centre.x + w / 2, centre.y + h / 2), 0f))
+            spot.show(me, Spot(Rect(centre.x - w / 2, centre.y - h / 2, centre.x + w / 2, centre.y + h / 2), 0f, bounds, 0f))
         }
     } else {
         Modifier
@@ -93,8 +94,11 @@ fun CardButton(
  * so the ease redraws the card without composing it again.
  */
 @Stable
-class CardLook internal constructor(growState: State<Float>, lightState: State<Float>) {
-    val grow by growState
+class CardLook internal constructor(growState: State<Float>, lightState: State<Float>, quietState: State<Boolean>) {
+    private val eased by growState
+    private val quiet by quietState
+    /** 1 at once while a row's menu is open over the card's layer ([FocusSpot.quiet]), not eased back. */
+    val grow: Float get() = if (quiet) 1f else eased
     val light by lightState
 }
 
@@ -103,13 +107,19 @@ class CardLook internal constructor(growState: State<Float>, lightState: State<F
  * so home opens at full brightness with nothing chosen; the first key press then dims every card but the
  * focused one. Each card's look depends only on its own focus and that one flag, so the order in which two
  * cards hear of a focus move does not matter.
+ *
+ * While a row's menu is open over the card's layer ([FocusSpot.quiet]) no card grows, and the card that had the
+ * focus as the menu opened keeps its full brightness, as the item the menu is about, drawn bare.
  */
 @Composable
 fun rememberCardLook(focused: Boolean): CardLook {
     val shown = LocalFocusVisibility.current.shown
-    val grow = animateFloatAsState(if (focused && shown) CARD_GROW else 1f, tween(GROW_MS), label = "grow")
-    val light = animateFloatAsState(if (focused || !shown) 1f else CARD_LIGHT, tween(GROW_MS), label = "light")
-    return remember(grow, light) { CardLook(grow, light) }
+    val quiet = LocalFocusSpot.current?.quiet == true
+    val opener = remember(quiet) { quiet && focused }
+    val grow = animateFloatAsState(if (focused && shown && !quiet) CARD_GROW else 1f, tween(GROW_MS), label = "grow")
+    val light = animateFloatAsState(if (focused || opener || !shown) 1f else CARD_LIGHT, tween(GROW_MS), label = "light")
+    val quietState = rememberUpdatedState(quiet)
+    return remember(grow, light, quietState) { CardLook(grow, light, quietState) }
 }
 
 /** The focused card's size: 8% larger, the same as a home card grows. */

@@ -11,6 +11,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,6 +48,25 @@ class FocusSpot {
     internal var target by mutableStateOf<Spot?>(null)
     private var owner: Any? = null
 
+    /**
+     * How many row menus are open over this layer ([RowMenu]). While one is, the layer's focus is drawn bare: the
+     * item that opened it is drawn as itself, at full brightness but neither grown nor glowing ([deskFocus],
+     * [rememberCardLook]). The screen is blurred round it and the menu sits beside it, which says what was pressed;
+     * the grow and the glow were in the picture the menu blurs, a lit box and an orb round the sharp item.
+     */
+    private var menus by mutableIntStateOf(0)
+
+    /** Whether a row's menu is open over this layer. Read it in composition or in a draw. */
+    val quiet: Boolean get() = menus > 0
+
+    internal fun menuOpened() {
+        menus += 1
+    }
+
+    internal fun menuClosed() {
+        if (menus > 0) menus -= 1
+    }
+
     internal fun show(who: Any, spot: Spot) {
         owner = who
         target = spot
@@ -79,8 +99,10 @@ class FocusVisibility(initiallyShown: Boolean) {
 /** Shown, where nothing provides one (a preview, a test). [MainActivity] provides one that starts unlit. */
 val LocalFocusVisibility = staticCompositionLocalOf { FocusVisibility(initiallyShown = true) }
 
-/** Where the focused item is: its grown bounds in the screens' pixels, its corner radius grown with it. */
-internal data class Spot(val rect: Rect, val corner: Float)
+/** Where the focused item is: its grown bounds in the screens' pixels, its corner radius grown with it, and the
+ * same before the grow ([bare], [bareCorner]): what a menu opened on it keeps sharp, the item being drawn bare
+ * under a menu ([FocusSpot.quiet]). */
+internal data class Spot(val rect: Rect, val corner: Float, val bare: Rect, val bareCorner: Float)
 
 val LocalFocusSpot = staticCompositionLocalOf<FocusSpot?> { null }
 
@@ -112,9 +134,14 @@ fun Modifier.deskFocus(corner: Dp): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var growTo by remember { mutableStateOf(1f) }
-    val grow by animateFloatAsState(if (focused && shown) growTo else 1f, tween(GROW_MS), label = "grow")
-    val light by animateFloatAsState(if (focused || !shown) 1f else KEY_LIGHT, tween(GROW_MS), label = "light")
-    val glow by animateFloatAsState(if (focused && shown) LocalGlowStrength.current else 0f, tween(GROW_MS), label = "glow")
+    // Under a row's menu nothing grows or glows, and the item that had the focus as the menu opened stays at full
+    // brightness, though the menu has the focus ([FocusSpot.quiet]). The draws below read [quiet] again, so the grow
+    // and the glow are gone in the frame the menu opens, before the menu takes its picture of the screen.
+    val quiet = spot?.quiet == true
+    val opener = remember(quiet) { quiet && focused }
+    val grow by animateFloatAsState(if (focused && shown && !quiet) growTo else 1f, tween(GROW_MS), label = "grow")
+    val light by animateFloatAsState(if (focused || opener || !shown) 1f else KEY_LIGHT, tween(GROW_MS), label = "light")
+    val glow by animateFloatAsState(if (focused && shown && !quiet) LocalGlowStrength.current else 0f, tween(GROW_MS), label = "glow")
     val cornerPx = with(density) { corner.toPx() }
     val glowMost = with(density) { GLOW_MOST.s.toPx() }
     val glowReach = with(density) { GLOW_REACH.s.toPx() }
@@ -126,7 +153,7 @@ fun Modifier.deskFocus(corner: Dp): Modifier = composed {
         val w = bounds.width * growTo
         val h = bounds.height * growTo
         val centre = bounds.center
-        spot.show(me, Spot(Rect(centre.x - w / 2, centre.y - h / 2, centre.x + w / 2, centre.y + h / 2), cornerPx * growTo))
+        spot.show(me, Spot(Rect(centre.x - w / 2, centre.y - h / 2, centre.x + w / 2, centre.y + h / 2), cornerPx * growTo, bounds, cornerPx))
     }
 
     LaunchedEffect(shown) { tell() }
@@ -145,12 +172,13 @@ fun Modifier.deskFocus(corner: Dp): Modifier = composed {
             if (focused) tell() else spot?.hide(me)
         }
         .graphicsLayer {
-            scaleX = grow
-            scaleY = grow
+            val g = if (spot?.quiet == true) 1f else grow
+            scaleX = g
+            scaleY = g
         }
         // Outside the kept layer, so the dim never reaches it.
         .drawBehind {
-            val g = glow
+            val g = if (spot?.quiet == true) 0f else glow
             if (g <= 0f || maxOf(size.width, size.height) > glowMost) return@drawBehind
             val half = maxOf(size.width, size.height) / 2
             val radius = half + glowReach

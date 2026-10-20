@@ -41,14 +41,15 @@ fun CastKey(connected: Boolean, onClick: () -> Unit, modifier: Modifier) {
 
 /**
  * The cast menu's lines: This TV, then every device found (and the device being cast to, whatever
- * discovery reports). The device in use is ticked, and groups are named as groups. "Looking for
+ * discovery reports). The device in use is ticked, and groups are named as groups. Each line has a glyph for
+ * what it is ([castGlyph]): This TV the plain screen, so it stands apart from the screens cast to. "Looking for
  * speakers" is shown while there are no devices. The last line is Look again, which browses afresh
- * and leaves the menu open. The menu is refreshed with these lines whenever the devices or the state
+ * and leaves the menu open (the reload glyph, as on the side menu). The menu is refreshed with these lines whenever the devices or the state
  * change, so a device found while the menu is open appears in it.
  */
 fun castLines(context: Context, casting: Casting, state: CastState, found: List<CastDevice>): List<MenuLine> {
     val lines = mutableListOf<MenuLine>(
-        MenuTick(context.getString(R.string.Tv_Cast_ThisTv), ticked = state is CastState.Off) { casting.stop() },
+        MenuTick(context.getString(R.string.Tv_Cast_ThisTv), ticked = state is CastState.Off, glyph = Fa.TV) { casting.stop() },
     )
     val devices = CastDevices.menu(found, state.device)
     if (devices.isEmpty()) {
@@ -56,12 +57,24 @@ fun castLines(context: Context, casting: Casting, state: CastState, found: List<
     } else {
         devices.forEach { device ->
             val name = if (device.isGroup) "${device.name} (${context.getString(R.string.Rpm_Cast_Group)})" else device.name
-            lines += MenuTick(name, ticked = state.device?.id == device.id) { casting.castTo(device) }
+            lines += MenuTick(name, ticked = state.device?.id == device.id, glyph = castGlyph(device)) { casting.castTo(device) }
         }
     }
     lines += MenuGap
-    lines += MenuAction(R.string.Rpm_Cast_LookAgain) { casting.discovery.again() }
+    lines += MenuAction(R.string.Rpm_Cast_LookAgain, glyph = Fa.RELOAD) { casting.discovery.again() }
     return lines
+}
+
+/**
+ * What a device is, as a glyph, from what it advertises ([CastDevice]): a group or a stereo pair (model
+ * `Google Cast Group`) is two speakers, a device with a picture out ([CastDevice.hasScreen]: a Chromecast, a
+ * Google TV, a TV with Cast built in) is a screen with a note on it, and anything else (a Nest or Home
+ * speaker, a speaker with Cast built in) is a speaker.
+ */
+private fun castGlyph(device: CastDevice): Char = when {
+    device.isGroup -> Fa.SPEAKERS
+    device.hasScreen -> Fa.TV_MUSIC
+    else -> Fa.SPEAKER
 }
 
 /** The desktop's cyan for a live cast (TransportDeck.xaml, CastBrush). */

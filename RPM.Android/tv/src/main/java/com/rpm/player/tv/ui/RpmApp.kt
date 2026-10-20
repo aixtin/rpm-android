@@ -471,6 +471,8 @@ fun RpmApp(
                                         defaultView = settings.defaultView,
                                         onNextView = settings::nextDefaultView,
                                         karaoke = settings.karaoke && ownFace?.supporter == true,
+                                        lyricsWanted = settings.lyricsOn,
+                                        onLyricsKey = settings::switchLyrics,
                                         casting = services.casting,
                                         // The heart, for a track of the person's own collection while it is the one
                                         // open: its mark is in that collection, and it is set the way a track's menu
@@ -478,13 +480,13 @@ fun RpmApp(
                                         favourite = (libraryState as? LibraryState.Ready)
                                             ?.takeIf { shelfOnScreen == Shelf.Own }
                                             ?.let { ready ->
-                                                TrackRef.parse(nowPlaying?.mediaId.orEmpty())
+                                                TrackRef.parse(nowPlaying.mediaId)
                                                     ?.takeIf { it.shelf == Shelf.Own }
                                                     ?.let { ref -> ready.collection.tracksById[ref.rpmId]?.tags?.favorite == true }
                                             },
                                         onFavourite = { favorite ->
-                                            val ref = TrackRef.parse(nowPlaying?.mediaId.orEmpty())
-                                            val title = nowPlaying?.title.orEmpty()
+                                            val ref = TrackRef.parse(nowPlaying.mediaId)
+                                            val title = nowPlaying.title
                                             if (ref != null) services.scope.launch {
                                                 val saved = services.ownWriter.mark(ref.rpmId, favorite)
                                                 noticeText = when {

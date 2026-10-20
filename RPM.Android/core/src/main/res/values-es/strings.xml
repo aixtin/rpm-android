@@ -6082,4 +6082,10 @@
 
     <!-- Player deck: the queue card's text when nothing is queued. -->
     <string name="Deck_QueueEmpty">No hay nada en cola. Reproduce un disco o una canción y lo que viene después aparecerá aquí.</string>
+
+    <!-- Small heading in the TV player's Now playing drawer, where the list that was playing continues after the songs the person added (which are under an "Up next" heading). -->
+    <string name="Tv_QueueAfterUpNext">Después</string>
+
+    <!-- Line under the title of the TV player's Now playing drawer while rearranging is on. OK, Up and Down are the TV remote's keys. -->
+    <string name="Tv_QueueRearrangeHint">OK toma una canción, Arriba y Abajo la mueven, OK la deja.</string>
 </resources>

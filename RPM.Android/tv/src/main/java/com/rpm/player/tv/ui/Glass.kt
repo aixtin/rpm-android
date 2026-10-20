@@ -80,8 +80,9 @@ class Backdrop(internal val layer: GraphicsLayer) {
 
     /** Renders the screen layer and blurs it. False when the screen could not be rendered, which leaves the
      * last capture in place: a layer that must not show another moment's screen checks this. Cancelling it
-     * also leaves the last capture in place. */
-    suspend fun capture(): Boolean {
+     * also leaves the last capture in place. [radius] is the box radius at the shrunk size: [RADIUS] for the
+     * panels' usual 21 px, [DEEP_RADIUS] for the live glass's 35 px. */
+    suspend fun capture(radius: Int = RADIUS): Boolean {
         val full = try {
             layer.toImageBitmap().asAndroidBitmap()
         } catch (e: CancellationException) {
@@ -92,7 +93,7 @@ class Backdrop(internal val layer: GraphicsLayer) {
         blurred = withContext(Dispatchers.Default) {
             val soft = if (full.config == Bitmap.Config.HARDWARE) full.copy(Bitmap.Config.ARGB_8888, false) else full
             val small = Bitmap.createScaledBitmap(soft, (soft.width / SHRINK).coerceAtLeast(1), (soft.height / SHRINK).coerceAtLeast(1), true)
-            boxBlur(small, RADIUS)
+            boxBlur(small, radius)
             small.asImageBitmap()
         }
         return true
@@ -334,6 +335,11 @@ private const val SHRINK = 6
 /** Box radius at the shrunk size; three passes give about a Gaussian of 3.5 px there, 21 at full size. The live
  * glass ([drawLiveBlur]) blurs more, about 35 px. */
 private const val RADIUS = 3
+
+/** A box radius at the shrunk size that blurs as much as the live glass ([drawLiveBlur]): three passes of 5 are
+ * about a Gaussian of 5.5 px there, 33 at full size. A row's menu takes its picture at this, so its card is the
+ * side menu's glass over a screen that the menu cannot blur live ([RowMenu]). */
+const val DEEP_RADIUS = 5
 
 /** The whole blurred backdrop, stretched over [modifier]'s box, for a layer that covers the screen. */
 @Composable

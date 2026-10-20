@@ -34,6 +34,8 @@ data class SavedItem(
     val station: RadioStation? = null,
     val logoStamp: String? = null,
     val detail: String? = null,
+    /** Whether the person added it with Play next or Add to queue ([EXTRA_UP_NEXT]). False in an older queue. */
+    val upNext: Boolean = false,
 )
 
 /** The queue, which item was playing and where. */
@@ -113,6 +115,7 @@ class LastQueue(private val file: File, scope: CoroutineScope) {
                 discStamp = m.extras?.getLong(EXTRA_DISC_STAMP) ?: 0L,
                 lufs = level.lufs,
                 peak = level.truePeak,
+                upNext = item.isUpNext,
             )
         }
 
@@ -140,6 +143,7 @@ class LastQueue(private val file: File, scope: CoroutineScope) {
                                 putStringArray(EXTRA_DISC_KEYS, saved.discKeys.toTypedArray())
                                 putLong(EXTRA_DISC_STAMP, saved.discStamp)
                                 putLevel(Level(saved.lufs, saved.peak))
+                                if (saved.upNext) putBoolean(EXTRA_UP_NEXT, true)
                             },
                         )
                         .build(),

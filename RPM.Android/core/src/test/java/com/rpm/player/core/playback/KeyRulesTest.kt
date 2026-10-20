@@ -2,7 +2,9 @@ package com.rpm.player.core.playback
 
 import android.view.KeyEvent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KeyRulesTest {
@@ -26,21 +28,37 @@ class KeyRulesTest {
         assertNull(KeyRules.forMediaKey(KeyEvent.KEYCODE_DPAD_RIGHT, playing = true))
     }
 
-    @Test fun withControlsHiddenOkTogglesOnceHowEverLongItIsHeld() {
-        assertEquals(PlayerAction.PAUSE, KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_CENTER, repeat = 0, playing = true))
-        assertEquals(PlayerAction.PLAY, KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_CENTER, repeat = 0, playing = false))
-        assertNull(KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_CENTER, repeat = 3, playing = true))
+    // OK with the controls hidden only shows them: it used to pause, which stopped the music for someone who
+    // only wanted to see the keys.
+    @Test fun withControlsHiddenOkNeverPlaysOrPauses() {
+        assertNull(KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_CENTER))
+        assertNull(KeyRules.forHiddenControls(KeyEvent.KEYCODE_ENTER))
+        assertNull(KeyRules.forHiddenControls(KeyEvent.KEYCODE_NUMPAD_ENTER))
     }
 
-    @Test fun withControlsHiddenAHeldArrowKeepsSeeking() {
-        assertEquals(PlayerAction.FORWARD, KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_RIGHT, repeat = 0, playing = true))
-        assertEquals(PlayerAction.FORWARD, KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_RIGHT, repeat = 7, playing = true))
-        assertEquals(PlayerAction.BACK, KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_LEFT, repeat = 0, playing = false))
+    @Test fun withControlsHiddenOkUpAndDownBringThemUp() {
+        assertTrue(KeyRules.raisesControls(KeyEvent.KEYCODE_DPAD_CENTER))
+        assertTrue(KeyRules.raisesControls(KeyEvent.KEYCODE_ENTER))
+        assertTrue(KeyRules.raisesControls(KeyEvent.KEYCODE_DPAD_UP))
+        assertTrue(KeyRules.raisesControls(KeyEvent.KEYCODE_DPAD_DOWN))
+        assertFalse(KeyRules.raisesControls(KeyEvent.KEYCODE_DPAD_LEFT))
+        assertFalse(KeyRules.raisesControls(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
+    }
+
+    // The remote's own play/pause key still toggles, with the controls hidden or not.
+    @Test fun thePlayPauseKeyStillToggles() {
+        assertEquals(PlayerAction.PAUSE, KeyRules.forMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, playing = true))
+        assertEquals(PlayerAction.PLAY, KeyRules.forMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, playing = false))
+    }
+
+    @Test fun withControlsHiddenTheArrowsSeek() {
+        assertEquals(PlayerAction.FORWARD, KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_RIGHT))
+        assertEquals(PlayerAction.BACK, KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_LEFT))
     }
 
     @Test fun upAndDownAreLeftToTheScreen() {
-        assertNull(KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_UP, repeat = 0, playing = true))
-        assertNull(KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_DOWN, repeat = 0, playing = true))
+        assertNull(KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_UP))
+        assertNull(KeyRules.forHiddenControls(KeyEvent.KEYCODE_DPAD_DOWN))
     }
 
     @Test fun aSignedUrlWithFiveMinutesOrLessLeftIsNotOpened() {

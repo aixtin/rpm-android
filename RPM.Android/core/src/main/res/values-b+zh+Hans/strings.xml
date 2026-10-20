@@ -6082,4 +6082,10 @@
 
     <!-- Player deck: the queue card's text when nothing is queued. -->
     <string name="Deck_QueueEmpty">队列中没有内容。播放一张专辑或一首歌，接下来要播放的内容会显示在这里。</string>
+
+    <!-- Small heading in the TV player's Now playing drawer, where the list that was playing continues after the songs the person added (which are under an "Up next" heading). -->
+    <string name="Tv_QueueAfterUpNext">之后</string>
+
+    <!-- Line under the title of the TV player's Now playing drawer while rearranging is on. OK, Up and Down are the TV remote's keys. -->
+    <string name="Tv_QueueRearrangeHint">按 OK 拿起歌曲，上下键移动，再按 OK 放下。</string>
 </resources>

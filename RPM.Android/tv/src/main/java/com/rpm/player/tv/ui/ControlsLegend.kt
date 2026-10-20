@@ -66,7 +66,7 @@ fun legendOf(route: Route, carousel: Boolean): List<LegendKey> {
  * every opening a new, larger id ([StackEntry]), so a screen come back to with Back, or shown again as the player or
  * the side menu closes over it, has an id already seen and gets none. Someone who has just opened a screen is the one
  * who may not know its keys; coming back to it, they have been there. Once per screen kind for the whole session was
- * weighed and left: the legend is two seconds long and goes on the first key, so it costs little to see again, and
+ * weighed and left: the legend is five seconds long and goes on the first key, so it costs little to see again, and
  * the setting turns it off for good.
  */
 @Stable
@@ -154,5 +154,5 @@ fun legendCorner(onMini: MiniPlace?): Alignment = when (onMini) {
 
 /** How long the legend takes to come up, stays up, and goes. */
 private const val LEGEND_IN_MS = 180
-private const val LEGEND_HELD_MS = 2_000L
+private const val LEGEND_HELD_MS = 5_000L
 private const val LEGEND_OUT_MS = 220

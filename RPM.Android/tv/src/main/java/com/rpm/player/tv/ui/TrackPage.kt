@@ -104,6 +104,8 @@ class TrackActions(
     val markAlbum: (CloudAlbum, Boolean) -> Unit,
     /** Gives the record a number of stars, 0 to clear them. Offered on their own collection only. */
     val rateAlbum: (CloudAlbum, Int) -> Unit,
+    /** Start radio: the track plays now and the queue keeps filling with songs like whichever one is playing. */
+    val startRadio: (Queued) -> Unit = {},
 )
 
 /**
@@ -401,6 +403,7 @@ internal fun trackChoices(q: Queued, collection: Collection, actions: TrackActio
     add(MenuChoice(R.string.AlbumMenu_Play, play))
     add(MenuChoice(R.string.AlbumMenu_PlayNext) { actions.playNext(listOf(q)) })
     add(MenuChoice(R.string.Playlists_AddToNowPlaying) { actions.addToQueue(listOf(q)) })
+    add(MenuChoice(R.string.Track_StartRadio) { actions.startRadio(q) })
     if (collection.shelf != Shelf.Own) return@buildList
     if (q.track.tags?.favorite == true) {
         add(MenuChoice(R.string.Track_UnsetFavorite) { actions.mark(q, false) })

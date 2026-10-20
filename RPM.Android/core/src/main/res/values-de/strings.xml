@@ -4304,6 +4304,9 @@
     <!-- Second line of a radio station entry in the home view's quick selection, under the station's name. Desktop and iPhone. -->
     <string name="Home_QuickStation">Radiosender</string>
 
+    <!-- Kind label on a song radio entry in the home view's quick selection, before the artist: 'Radio • Sting'. The entry is named after one of the songs played most; pressing it plays that song and keeps the queue filled with songs like it (the song menus' Start radio). Not internet radio. -->
+    <string name="Home_QuickRadio">Radio</string>
+
     <!-- Second line of an album or playlist entry in the home view's quick selection. {0} = Home_QuickAlbum or Home_QuickPlaylist, {1} = the artist or the playlist's caption. -->
     <string name="Home_QuickKindJoin">%1$s • %2$s</string>
 

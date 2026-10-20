@@ -67,6 +67,10 @@ class Collection(
     private val listCovers: Map<String, ListArt>,
     /** The cloud's art index for [shelf], which [disc] reads. */
     private val index: CoverIndex,
+    /** The moods each track is in ("Calm", "Danceable"…), by rpmId, read from every window of the computer's mood
+     * lists and not only the one each list shows ([Lists.moods]). A song radio counts two songs in one mood as
+     * closer. Empty where the computer sent no lists. */
+    val moodsById: Map<String, Set<String>> = emptyMap(),
 ) {
     private val albumByKey: Map<String, CloudAlbum> by lazy { albums.associateBy { it.key } }
     private val listById: Map<String, TrackList> by lazy { lists.associateBy { it.id } }
@@ -98,6 +102,7 @@ class Collection(
             plays: Map<String, Plays>,
             lists: List<TrackList>,
             index: CoverIndex,
+            moods: Map<String, Set<String>> = emptyMap(),
         ): Collection {
             val albumOf = buildMap { for (album in albums) for (track in album.tracks) put(track.rpmId, album) }
             val albumCovers = albums.associate { it.key to coverFor(it, index, shelf) }
@@ -109,7 +114,7 @@ class Collection(
                         ?: ListCover(shelf, list.storeId, list.tracks.firstNotNullOfOrNull { albumOf[it.rpmId] }?.let { albumCovers[it.key] })
                     )
             }
-            return Collection(shelf, albums, tracksById, plays, lists, albumOf, albumCovers, listCovers, index)
+            return Collection(shelf, albums, tracksById, plays, lists, albumOf, albumCovers, listCovers, index, moods)
         }
     }
 }
@@ -157,6 +162,23 @@ object Lists {
                 blurb = MoodBlurb.of(list.kind, tracks.map { it.tags?.genre }),
             )
         }.filter { it.tracks.isNotEmpty() }
+
+    /**
+     * Which of the plain moods each track is in, by rpmId: every window of every list of those kinds, a genre's cut
+     * of a mood included. The desktop's `MoodShelf.MoodsByPath`, which its song radio reads. Decades and the
+     * listening lists are not moods and are left out.
+     */
+    fun moods(cut: CloudMoodLists?): Map<String, Set<String>> {
+        val byId = HashMap<String, MutableSet<String>>()
+        for (list in cut?.lists.orEmpty()) {
+            if (list.kind !in MOOD_KINDS || list.decade > 0) continue
+            for (id in list.trackIds) byId.getOrPut(id) { HashSet() }.add(list.kind)
+        }
+        return byId
+    }
+
+    /** The kinds that are a mood, as the desktop's `MoodShelf.MoodsByPath` counts them. */
+    private val MOOD_KINDS = setOf("Calm", "Energetic", "Danceable", "Focus", "Sleep")
 
     /** The person's own playlists, sorted by name, each track found in the catalogue or left out. */
     fun own(playlists: List<CloudPlaylist>, byId: Map<String, CloudTrack>): List<TrackList> =

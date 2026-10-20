@@ -18,6 +18,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import com.rpm.player.core.cloud.CloudTrack
 import com.rpm.player.core.library.CloudAlbum
+import com.rpm.player.core.library.Collection
 import com.rpm.player.core.library.Cover
 import com.rpm.player.core.library.DiscArt
 import com.rpm.player.core.radio.Icy
@@ -176,8 +177,38 @@ private fun read(player: Player): NowPlaying? {
 
 
 /** One track to queue, from [shelf], with the names, cover and disc it is shown under. A list mixes albums,
- * so each track carries its own. */
-data class Queued(val shelf: Shelf, val track: CloudTrack, val albumName: String, val albumArtist: String, val cover: Cover?, val disc: DiscArt?)
+ * so each track carries its own. [radio] names the song radio that queued it, or is null (see [SongRadioRuns]). */
+data class Queued(
+    val shelf: Shelf,
+    val track: CloudTrack,
+    val albumName: String,
+    val albumArtist: String,
+    val cover: Cover?,
+    val disc: DiscArt?,
+    val radio: String? = null,
+)
+
+/** One song of [collection] to queue, with the names, cover and disc of the record it is on. */
+fun queuedOf(collection: Collection, track: CloudTrack): Queued {
+    val album = collection.albumOf[track.rpmId]
+    return Queued(
+        collection.shelf,
+        track,
+        album?.album ?: track.album.orEmpty(),
+        album?.artist ?: track.artist.orEmpty(),
+        album?.let { collection.cover(it) },
+        album?.let { collection.disc(it) },
+    )
+}
+
+/**
+ * "Start radio" on one song: the queue becomes that song, which plays now, and the playback service keeps
+ * [SongRadio.AHEAD][com.rpm.player.core.library.SongRadio.AHEAD] songs like whichever one is playing queued after it
+ * ([SongRadioRuns]). Whatever was queued before is replaced, as with any other play.
+ */
+fun Player.startRadio(song: Queued) {
+    playQueue(listOf(song.copy(radio = SongRadioRuns.newRun(song.track.rpmId))), 0)
+}
 
 /** The tracks of [album] on [shelf] as a queue. */
 fun queueOf(shelf: Shelf, album: CloudAlbum, cover: Cover?, disc: DiscArt?): List<Queued> =
@@ -212,7 +243,11 @@ fun Player.addToQueue(tracks: List<Queued>) {
     addMediaItems(tracks.map(::mediaItemOf))
 }
 
-private fun mediaItemOf(q: Queued): MediaItem =
+/** The song radio a queued item belongs to, in its metadata extras. Not kept with the saved queue: a radio ends
+ * when the service does, as it does on the computer. */
+const val EXTRA_RADIO = "rpm.radio"
+
+internal fun mediaItemOf(q: Queued): MediaItem =
     MediaItem.Builder()
         .setMediaId(TrackRef(q.shelf, q.track.rpmId).mediaId)
         .setMediaMetadata(
@@ -230,6 +265,7 @@ private fun mediaItemOf(q: Queued): MediaItem =
                         putLong(EXTRA_DISC_STAMP, q.disc?.stamp ?: 0L)
                         // What the playback service levels the track from (LevelSink).
                         putLevel(Level.of(q.track.tags))
+                        q.radio?.let { putString(EXTRA_RADIO, it) }
                     },
                 )
                 .build(),

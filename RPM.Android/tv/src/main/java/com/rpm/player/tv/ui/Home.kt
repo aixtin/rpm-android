@@ -128,6 +128,9 @@ fun queuedOf(song: QuickPick.Song, collection: Collection): Queued {
     return Queued(collection.shelf, song.track, album?.album.orEmpty(), album?.artist.orEmpty(), album?.let(collection::cover), album?.let(collection::disc))
 }
 
+/** A radio's song as the queue holds it, as [queuedOf] a quick song. */
+fun queuedOf(radio: QuickPick.Radio, collection: Collection): Queued = queuedOf(QuickPick.Song(radio.track, radio.album), collection)
+
 /** What home asks the app to do when a card is chosen. */
 class HomeActions(
     val openAlbum: (CloudAlbum) -> Unit,
@@ -136,6 +139,8 @@ class HomeActions(
     val playSongs: (List<QuickPick.Song>) -> Unit,
     val tune: (RadioStation) -> Unit,
     val openPlayer: () -> Unit,
+    /** A radio entry chosen: its song plays and the queue keeps filling with songs like it. */
+    val startRadio: (QuickPick.Radio) -> Unit = {},
 )
 
 /**
@@ -959,6 +964,15 @@ private fun QuickEntry(
             title = pick.station.display
             line = stringResource(R.string.Home_QuickStation)
         }
+        // Named for the song it starts from, the kind first on the line under it, so it reads as a radio and not as
+        // the song's own entry further on.
+        is QuickPick.Radio -> {
+            picture = pick.album?.let { collection.cover(it) }
+            title = pick.track.title.orEmpty()
+            line = pick.track.artist?.takeIf { it.isNotBlank() }
+                ?.let { stringResource(R.string.Home_QuickKindJoin, stringResource(R.string.Home_QuickRadio), it) }
+                ?: stringResource(R.string.Home_QuickRadio)
+        }
     }
     CardButton(
         onClick = {
@@ -967,6 +981,7 @@ private fun QuickEntry(
                 is QuickPick.OfAlbum -> actions.openAlbum(pick.album)
                 is QuickPick.OfList -> actions.openList(pick.list)
                 is QuickPick.OfStation -> actions.tune(pick.station)
+                is QuickPick.Radio -> actions.startRadio(pick)
             }
         },
         contentAlignment = Alignment.CenterStart,

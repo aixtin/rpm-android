@@ -27,6 +27,25 @@ object Genres {
         return null
     }
 
+    /**
+     * The styles this tag names, each by its name in [SubgenreTable]: "Trip Hop", "Baroque". A tag may list
+     * several ("classical, romantic classical, classical period"), so each entry is read on its own. Empty
+     * when it names none, which is most tags. The desktop's song radio reads a record's styles the same way.
+     */
+    fun styles(tag: String?): Set<String> {
+        if (tag.isNullOrBlank()) return emptySet()
+        val found = LinkedHashSet<String>()
+        for (entry in tag.split(',', ';', '|')) {
+            if (entry.isBlank()) continue
+            for (key in GenreText.keys(entry)) {
+                val name = styleNames[key] ?: continue
+                found.add(name)
+                break
+            }
+        }
+        return found
+    }
+
     /** A genre as it is said in a sentence: the first half of a slashed label, lower cased, and "R&B" kept
      * as it is. The desktop's `Genres.Spoken`. Not translated, like the genre names. */
     fun spoken(genre: String): String {
@@ -109,6 +128,17 @@ object Genres {
             val key = GenreText.fold(name)
             if (key.isEmpty() || key in SubgenreTable.sharedKeys || key in SubgenreTable.blockedKeys) continue
             keys.putIfAbsent(key, genre)
+        }
+        keys
+    }
+
+    /** The same keys as [styleKeys], to the style's own name instead of its shelf. */
+    private val styleNames: Map<String, String> by lazy {
+        val keys = HashMap<String, String>()
+        for ((name, _) in SubgenreTable.styles) {
+            val key = GenreText.fold(name)
+            if (key.isEmpty() || key in SubgenreTable.sharedKeys || key in SubgenreTable.blockedKeys) continue
+            keys.putIfAbsent(key, name)
         }
         keys
     }

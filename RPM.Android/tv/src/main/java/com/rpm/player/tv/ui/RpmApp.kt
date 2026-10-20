@@ -4,6 +4,7 @@ import com.rpm.player.core.playback.NowPlaying
 import com.rpm.player.core.playback.rememberNowPlaying
 import com.rpm.player.core.playback.Queued
 import com.rpm.player.core.playback.playQueue
+import com.rpm.player.core.playback.startRadio
 import com.rpm.player.core.playback.tune
 import com.rpm.player.core.playback.playNext
 import com.rpm.player.core.playback.addToQueue
@@ -662,6 +663,14 @@ private fun Screens(
             services.scope.launch { services.radio.browser.click(station.uuid) }
         }
     }
+    // Start radio: the song plays now, the queue keeps filling with songs like it, and the player opens, as for
+    // any other play.
+    fun startRadio(song: Queued) {
+        controller?.let {
+            it.startRadio(song)
+            onOpenPlayer()
+        }
+    }
     // The tuner tunes in place, with no player over it.
     fun tuneHere(station: RadioStation) {
         controller?.let {
@@ -690,6 +699,7 @@ private fun Screens(
                 playSongs = { songs -> play(songs.map { queuedOf(it, collection) }, 0) },
                 tune = { station -> tune(station) },
                 openPlayer = onOpenPlayer,
+                startRadio = { pick -> startRadio(queuedOf(pick, collection)) },
             )
         }
         val context = LocalContext.current
@@ -698,6 +708,7 @@ private fun Screens(
                 play = play,
                 playNext = { tracks -> controller?.playNext(tracks) },
                 addToQueue = { tracks -> controller?.addToQueue(tracks) },
+                startRadio = { q -> startRadio(q) },
                 // The writes run in the app's scope, so leaving the page does not cut one off half made.
                 mark = { q, favorite ->
                     services.scope.launch {

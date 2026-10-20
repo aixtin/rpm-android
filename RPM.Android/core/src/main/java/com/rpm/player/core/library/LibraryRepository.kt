@@ -330,6 +330,7 @@ class LibraryRepository(
             plays = Lists.plays(library.plays),
             lists = Lists.generated(library.moods, byId, shelf) + Lists.own(library.playlists, byId),
             index = library.coverIndex,
+            moods = Lists.moods(library.moods),
         )
         took("collection")
         val home = HomeShelf.build(collection, Random(seed))

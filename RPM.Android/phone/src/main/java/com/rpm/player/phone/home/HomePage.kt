@@ -124,6 +124,8 @@ class HomeActions(
     val onOpenList: (TrackList) -> Unit,
     val onPlay: (List<CloudTrack>) -> Unit,
     val onTune: (RadioStation) -> Unit,
+    /** Start radio on a song: it plays now and the queue keeps filling with songs like it. */
+    val onRadio: (CloudTrack) -> Unit = {},
 )
 
 /**
@@ -451,6 +453,7 @@ fun PicksRow(
 private fun QuickLine(pick: QuickPick, collection: Collection, images: ImageLoader, logoStamp: String, actions: HomeActions, songLine: SongLine) {
     val album: CloudAlbum? = when (pick) {
         is QuickPick.Song -> pick.album
+        is QuickPick.Radio -> pick.album
         is QuickPick.OfAlbum -> pick.album
         else -> null
     }
@@ -472,12 +475,16 @@ private fun QuickLine(pick: QuickPick, collection: Collection, images: ImageLoad
             Glyph.playlists,
         )
         is QuickPick.OfStation -> Triple(pick.station.display, stringResource(R.string.Home_QuickStation), Glyph.radio)
+        // Named for the song it starts from, the kind first on the line under it, so it reads as a radio and not as
+        // the song's own line further on.
+        is QuickPick.Radio -> Triple(pick.track.title.orEmpty(), kindLine(stringResource(R.string.Home_QuickRadio), pick.track.artist), Glyph.radio)
     }
     val onClick: (() -> Unit)? = when (pick) {
         is QuickPick.Song -> { { actions.onPlay(listOf(pick.track)) } }
         is QuickPick.OfAlbum -> { { actions.onOpen(pick.album) } }
         is QuickPick.OfStation -> { { actions.onTune(pick.station) } }
         is QuickPick.OfList -> { { actions.onOpenList(pick.list) } }
+        is QuickPick.Radio -> { { actions.onRadio(pick.track) } }
     }
     Row(
         Modifier

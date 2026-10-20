@@ -196,6 +196,12 @@ class PlaybackService : MediaSessionService() {
             }
         })
 
+        // A song radio's item becoming the current one queues the songs after it, here so it goes on with the app
+        // gone. It picks from the collection on screen.
+        SongRadioRuns(player, scope) {
+            (services.library.state.value as? com.rpm.player.core.library.LibraryState.Ready)?.collection
+        }.attach()
+
         // A dropped station is tuned in again.
         player.addListener(
             StationReconnect(player, scope) {

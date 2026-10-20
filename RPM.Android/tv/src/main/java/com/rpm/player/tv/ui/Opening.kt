@@ -281,6 +281,7 @@ suspend fun fetchHomePictures(ready: LibraryState.Ready, images: ImageLoader, co
         home.quick.take(12).forEach { pick ->
             when (pick) {
                 is QuickPick.Song -> pick.album?.let(collection::cover)?.let(::add)
+                is QuickPick.Radio -> pick.album?.let(collection::cover)?.let(::add)
                 is QuickPick.OfAlbum -> collection.cover(pick.album)?.let(::add)
                 is QuickPick.OfList -> collection.cover(pick.list)?.let(::add)
                 is QuickPick.OfStation -> Unit

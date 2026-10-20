@@ -20,6 +20,8 @@ sealed interface QuickPick {
     data class OfAlbum(val album: CloudAlbum) : QuickPick
     data class OfList(val list: TrackList) : QuickPick
     data class OfStation(val station: RadioStation) : QuickPick
+    /** A song radio on one of the songs played most ([HomeShelf.radioSeeds]): pressing it starts the radio. */
+    data class Radio(val track: CloudTrack, val album: CloudAlbum?) : QuickPick
 }
 
 /** Home, top to bottom. Every row may be empty, and an empty row is not drawn. */
@@ -166,11 +168,33 @@ object HomeShelf {
         return cards
     }
 
-    /** [QUICK_PICKS] picks dealt in turn: the most played song, album and list. */
+    /** [QUICK_PICKS] picks: a radio on the songs played most ([radioSeeds]) first, then the most played song,
+     * album and list dealt in turn. */
     private fun quick(c: Collection, played: List<CloudAlbum>, lists: List<TrackList>): List<QuickPick> {
-        val songs = MostPlayed.songs(c.tracksById.values, c.plays, Int.MAX_VALUE)
-            .map { QuickPick.Song(it, c.albumOf[it.rpmId]) }
-        return deal(songs, played.map { QuickPick.OfAlbum(it) }, lists.map { QuickPick.OfList(it) })
+        val most = MostPlayed.songs(c.tracksById.values, c.plays, Int.MAX_VALUE)
+        val songs = most.map { QuickPick.Song(it, c.albumOf[it.rpmId]) }
+        val radios = radioSeeds(most).map { QuickPick.Radio(it, c.albumOf[it.rpmId]) }
+        return (radios + deal(songs, played.map { QuickPick.OfAlbum(it) }, lists.map { QuickPick.OfList(it) })).take(QUICK_PICKS)
+    }
+
+    /** How many song radios Quick selection offers at most. The desktop's `QuickPicks.MostRadios`. */
+    const val MOST_RADIOS = 2
+
+    /**
+     * The songs to offer a radio on, from [mostPlayed] (most played first): the first, and the next one by another
+     * act, because two radios on one act are one radio. A song whose tags name no act is never taken for another such
+     * song. The desktop's `QuickPicks.RadioSeeds`.
+     */
+    fun radioSeeds(mostPlayed: List<CloudTrack>): List<CloudTrack> {
+        val seeds = ArrayList<CloudTrack>(MOST_RADIOS)
+        val acts = HashSet<String>()
+        for (track in mostPlayed) {
+            if (seeds.size == MOST_RADIOS) break
+            val act = (track.tags?.albumArtist?.takeIf { it.isNotBlank() } ?: track.artist).orEmpty().trim().lowercase()
+            if (act.isNotEmpty() && !acts.add(act)) continue
+            seeds += track
+        }
+        return seeds
     }
 
     /**
@@ -253,13 +277,15 @@ object HomeShelf {
      * album, playlist, station in turn, a kind that runs out skipped). */
     fun withStations(quick: List<QuickPick>, stations: List<RadioStation>): List<QuickPick> {
         if (stations.isEmpty()) return quick
+        // The radios stay first, ahead of the deal, as they were put.
+        val radios = quick.filterIsInstance<QuickPick.Radio>()
         val kinds = listOf(
             quick.filterIsInstance<QuickPick.Song>(),
             quick.filterIsInstance<QuickPick.OfAlbum>(),
             quick.filterIsInstance<QuickPick.OfList>(),
             stations.map { QuickPick.OfStation(it) },
         )
-        val dealt = mutableListOf<QuickPick>()
+        val dealt = radios.toMutableList<QuickPick>()
         var i = 0
         while (dealt.size < QUICK_PICKS && kinds.any { i < it.size }) {
             for (kind in kinds) if (dealt.size < QUICK_PICKS) kind.getOrNull(i)?.let { dealt += it }

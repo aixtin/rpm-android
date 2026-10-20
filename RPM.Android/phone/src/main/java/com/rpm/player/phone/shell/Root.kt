@@ -43,6 +43,7 @@ import com.rpm.player.core.playback.Queued
 import com.rpm.player.core.playback.TrackRef
 import com.rpm.player.core.playback.tune
 import com.rpm.player.core.playback.playQueue
+import com.rpm.player.core.playback.startRadio
 import com.rpm.player.core.playback.queueOf
 import com.rpm.player.core.playback.rememberNowPlaying
 import com.rpm.player.phone.PhoneSettings
@@ -242,6 +243,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
         onOpen = { homeOpened = homeOpened + Step.Record(it.key) },
         onOpenList = { homeOpened = homeOpened + Step.Playlist(it.id) },
         onPlay = { tracks -> controller?.playQueue(tracks.map { queued(collection, it) }, 0) },
+        onRadio = { track -> controller?.startRadio(queued(collection, track)) },
         onTune = { station ->
             controller?.let {
                 it.tune(station, rules.logoStamp, station.detail(java.util.Locale.getDefault()))

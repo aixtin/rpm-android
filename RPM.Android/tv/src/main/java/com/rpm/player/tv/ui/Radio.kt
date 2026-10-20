@@ -179,7 +179,6 @@ fun RadioScreen(
     onTune: (RadioStation, StationRules) -> Unit,
     onTuneHere: (RadioStation) -> Unit,
     onStop: () -> Unit,
-    onBack: () -> Unit,
 ) {
     val essential by radio.essential.collectAsStateWithLifecycle()
     val rules by radio.rules.collectAsStateWithLifecycle()
@@ -432,9 +431,6 @@ fun RadioScreen(
                 }
             }
         }
-        // Down from the back key goes to the banner (or the mode keys without one), named: the remote's search found
-        // the mini player beside it, which gives Down back to the key.
-        CornerKey(Fa.CHEVRON_LEFT, stringResource(R.string.Viz_LibraryBackHome), down = if (bannerCards.isNotEmpty()) bannerKey else firstMode, onBack)
         }
 
         if (tunerUp) {

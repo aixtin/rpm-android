@@ -596,16 +596,6 @@ internal fun PageKey(onClick: () -> Unit, modifier: Modifier, content: @Composab
     ) { content() }
 }
 
-/** The back key in the top left corner (18, 14; 36 square; a 14 chevron), on the record page and the wall. */
-@Composable
-fun BackKey(onClick: () -> Unit, modifier: Modifier) {
-    Box(Modifier.padding(start = 18.px, top = 14.px)) {
-        DeskButton(onClick = onClick, corner = 18.px, modifier = modifier.size(36.px)) {
-            Glyph(Fa.CHEVRON_LEFT, 14.tpx, Ink.Key)
-        }
-    }
-}
-
 /** "CD n" over a disc's first track: 16·s SemiBold at 0.6 (the desktop's 11), with a hairline under it
  * (Album.cs). */
 @Composable

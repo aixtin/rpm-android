@@ -30,7 +30,7 @@ import com.rpm.player.core.library.TrackList
  * then made lists by name with their folder under them.
  */
 @Composable
-fun PlaylistsScreen(collection: Collection, images: ImageLoader, onOpenList: (TrackList) -> Unit, onBack: () -> Unit) {
+fun PlaylistsScreen(collection: Collection, images: ImageLoader, onOpenList: (TrackList) -> Unit) {
     val generated = remember(collection) {
         collection.lists.filter { it.generated }
     }
@@ -53,8 +53,6 @@ fun PlaylistsScreen(collection: Collection, images: ImageLoader, onOpenList: (Tr
                 section(R.string.Playlists_Title, own, collection, images, onOpenList, firstList, first)
             }
         }
-        // There is no mini player on this screen, so the remote's own search finds what is under the key.
-        CornerKey(Fa.CHEVRON_LEFT, stringResource(R.string.Viz_LibraryBackHome), down = FocusRequester.Default, onBack)
     }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
 }

@@ -305,21 +305,6 @@ fun Heading(text: String) {
     Text(text, style = ui(HEADING_TEXT, FontWeight.SemiBold), color = Ink.Card, modifier = Modifier.padding(bottom = 12.s))
 }
 
-/** The key in the top left corner (LibraryBackButton): 36 square at 18, 14, a 14 glyph. The playlists and
- * radio screens go back to home with it; home has none. */
-@Composable
-fun CornerKey(glyph: Char, label: String, down: FocusRequester, onClick: () -> Unit) {
-    Box(Modifier.padding(start = 18.px, top = 14.px)) {
-        DeskButton(
-            onClick = onClick,
-            corner = 18.px,
-            modifier = Modifier.size(36.px).focusProperties { this.down = down }.semantics { contentDescription = label },
-        ) {
-            Glyph(glyph, 14.tpx, Ink.Key)
-        }
-    }
-}
-
 /** Moves a block [by] to the left and gives it that much more width, so a card's own padding lines its
  * picture up with the heading above it (the desktop's `Margin="-8,0,0,0"`). */
 fun Modifier.outdent(by: Dp): Modifier = layout { measurable, constraints ->

@@ -133,7 +133,6 @@ fun ArtistPage(
     onOpenArtist: (ArtistWallItem) -> Unit,
     onOpenList: (TrackList) -> Unit,
     onPicture: (Any?) -> Unit,
-    onBack: () -> Unit,
 ) {
     val byKey = remember(collection) { collection.albums.associateBy { it.key } }
     val shelves = remember(artist, collection) { ArtistShelves.of(artist, byKey) }
@@ -178,7 +177,6 @@ fun ArtistPage(
     }
 
     val first = remember { FocusRequester() }
-    val backKey = remember { FocusRequester() }
     val returnTo = remember { FocusRequester() }
     val menu = rememberRowMenu()
     // Every row is kept composed once it has been, as on home: composing a row as it scrolls into view holds the
@@ -231,7 +229,6 @@ fun ArtistPage(
             }
         }
         PageBand(photo, bio, albumCount(artist.own.size) + "  ·  " + songCount(artist.tracks), images, bandHigh) { ArtistTitle(artist, art?.logo, images) }
-        BackKey(onBack, Modifier.focusRequester(backKey).focusProperties { down = first })
     }
 
     RowMenu(menu)

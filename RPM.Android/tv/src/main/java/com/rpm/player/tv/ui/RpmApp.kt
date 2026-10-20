@@ -838,7 +838,7 @@ private fun Screens(
                             onOpenAlbum = homeActions.openAlbum,
                             onTune = ::tune,
                         )
-                        Route.Playlists -> PlaylistsScreen(collection, services.images, homeActions.openList, onBack = back)
+                        Route.Playlists -> PlaylistsScreen(collection, services.images, homeActions.openList)
                         Route.Computers -> ComputersScreen(
                             computers = services.computers,
                             shared = services.shared,
@@ -864,7 +864,6 @@ private fun Screens(
                             onTune = { station, _ -> tune(station) },
                             onTuneHere = ::tuneHere,
                             onStop = ::stopStation,
-                            onBack = back,
                         )
                         // A page whose album or list the collection no longer holds (a new load replaced it) shows
                         // nothing; Back leaves it.
@@ -916,7 +915,6 @@ private fun Screens(
                                 },
                                 onOpenList = homeActions.openList,
                                 onPicture = { shown -> artistPicture = shown },
-                                onBack = back,
                             )
                         }
                         is Route.OfGenre -> ready.walls.genre(route.name)?.let { genre ->
@@ -940,7 +938,6 @@ private fun Screens(
                                     browse.openedAlbum = null
                                     stack.push(Route.OfGenre(other.name))
                                 },
-                                onBack = back,
                             )
                         }
                     }

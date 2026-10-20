@@ -81,7 +81,6 @@ fun GenrePage(
     onOpenArtist: (ArtistWallItem) -> Unit,
     onOpenList: (TrackList) -> Unit,
     onOpenGenre: (GenreWallItem) -> Unit,
-    onBack: () -> Unit,
 ) {
     val byKey = remember(collection) { collection.albums.associateBy { it.key } }
     val shelves = remember(genre, walls, collection) { GenreShelves.of(genre, walls.genres, byKey, walls.artists) }
@@ -107,7 +106,6 @@ fun GenrePage(
 
     val first = remember { FocusRequester() }
     val menu = rememberRowMenu()
-    val backKey = remember { FocusRequester() }
     val returnTo = remember { FocusRequester() }
     val list = rememberLazyListState(cacheWindow = LazyLayoutCacheWindow(aheadFraction = PAGE_KEPT, behindFraction = PAGE_KEPT))
     val opened = state.openedAlbum
@@ -182,7 +180,6 @@ fun GenrePage(
         }
         val fallback = stringResource(R.string.Genres_InLibrary, genre.albums.size.toString(), shelves.actCount.toString())
         PageBand(photo, article?.extract, fallback, images, bandHigh) { GenreTitle(genre, mark) }
-        BackKey(onBack, Modifier.focusRequester(backKey).focusProperties { down = first })
     }
 
     RowMenu(menu)

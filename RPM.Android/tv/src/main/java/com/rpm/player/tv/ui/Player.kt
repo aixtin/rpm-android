@@ -338,7 +338,6 @@ fun PlayerScreen(
                     onNextView()
                     viewNamed = PegasusView.entries[(view.ordinal + 1) % PegasusView.entries.size]
                 },
-                onBack = onBack,
                 canFocus = shown && !queueOpen,
                 above = if (seekReachable) seekKey else FocusRequester.Cancel,
                 playKey = playKey,
@@ -512,7 +511,6 @@ private fun TransportRow(
     onQueue: () -> Unit,
     layoutKey: FocusRequester,
     onLayout: () -> Unit,
-    onBack: () -> Unit,
     canFocus: Boolean,
     above: FocusRequester,
     playKey: FocusRequester,
@@ -532,7 +530,6 @@ private fun TransportRow(
                 if (controller != null) {
                     TransportKey(Fa.BARS, 15.ts, 36.s, stringResource(R.string.Viz_Queue), onQueue, keys.focusRequester(queueKey))
                 }
-                TransportKey(Fa.ARROW_LEFT, 15.ts, 36.s, stringResource(R.string.Viz_BackToLibrary), onBack, keys)
                 Box(Modifier.size(36.s).graphicsLayer { alpha = 0.35f }, contentAlignment = Alignment.Center) {
                     Glyph(Fa.HEART, 14.ts, Ink.Key, regular = true)
                 }

@@ -3,10 +3,10 @@ package com.rpm.player.core.room
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.sign
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * The room's animations, picked in the TV's settings. [Original] is the room every app draws
@@ -25,8 +25,8 @@ enum class RoomStyle {
      * over one huge blurred ball in the third colour that swells with the middle. */
     Lava,
 
-    /** Soft columns of light rising from a glowing floor into a dark top, each lit by one of the three
-     * levels: the RPaMp skin's summed ribbons (make_rpamp_ground.py) stood upright and set moving. */
+    /** The RPaMp skin's ground (background-rpamp.jpg, drawn by make_rpamp_ground.py), set moving: broad
+     * soft ribbons of light flowing across a dark ground, in the sleeve's colours. */
     RPaMp,
 }
 
@@ -36,17 +36,17 @@ enum class RoomStyle {
  * shaders spend nothing per pixel on numbers that are the same for every pixel. Written as vec4s, ready
  * for `glUniform4fv`. Allocation-free per frame.
  *
- * Each style's main motion runs on a clock of its own ([spin], [flow], [rise]) that [advance] moves on
+ * Each style's main motion runs on a clock of its own ([spin], [flow], [drift]) that [advance] moves on
  * faster while its level is high, so the music speeds the figures up without making them jump: a level
  * that scaled the time itself would throw every figure forward the moment the bass came in. A still room
  * is advanced by nothing and keeps its pose. Slow drifts that the music does not touch read the room's
  * own clock instead.
  */
 class RoomFigures {
-    /** Yang's two big balls, each followed by [ECHOES] echoes: (x, y, radius, weight). */
-    val big = FloatArray(YANG_LOBES * 4)
-    /** Yang's two small balls and their echoes, as [big]. */
-    val small = FloatArray(YANG_LOBES * 4)
+    /** Yang's two big balls, each followed by [BIG_ECHOES] echoes: (x, y, radius, weight). */
+    val big = FloatArray(YANG_BIG * 4)
+    /** Yang's two small balls, each followed by [SMALL_ECHOES] echoes, as [big]. */
+    val small = FloatArray(YANG_SMALL * 4)
     /** Yang's blurred middle ball: (x, y, radius, unused). */
     val centre = FloatArray(4)
 
@@ -57,14 +57,13 @@ class RoomFigures {
     /** Lava's background ball: (x, y, radius, the phase of the pools' ripple). */
     val back = FloatArray(4)
 
-    /** RPaMp's columns: (x at the floor, where it fades out, half-width, brightness). */
-    val strandA = FloatArray(STRANDS * 4)
-    /** RPaMp's columns: (sway, sway phase, colour: 0 tint, 1 glow, 2 shade, unused). */
-    val strandB = FloatArray(STRANDS * 4)
-    /** RPaMp's heads, the round glow at the top of each column: (x, y). */
-    val heads = FloatArray(STRANDS * 2)
-    /** RPaMp's floor: (height of its glow, brightness, ripple phase, unused). */
-    val floor = FloatArray(4)
+    /** RPaMp's ribbons, each a curve across the screen as make_rpamp_ground.py draws one: (where it
+     * crosses the left edge, tilt, how far its sine moves it, 2 pi x its sine's cycles across). */
+    val ribbonA = FloatArray(RIBBONS * 4)
+    /** RPaMp's ribbons: (phase of the sine, phase of its second sine, half-thickness, swell). */
+    val ribbonB = FloatArray(RIBBONS * 4)
+    /** RPaMp's ribbons: (phase of the swell, weight, the filament's weight, colour: 0 tint, 1 glow, 2 shade). */
+    val ribbonC = FloatArray(RIBBONS * 4)
 
     /** Yang's turn, in radians. */
     var spin = 0.0
@@ -72,15 +71,15 @@ class RoomFigures {
     /** Lava's clock, in seconds of lava. */
     var flow = 0.0
         private set
-    /** RPaMp's clock, in seconds of rising. */
-    var rise = 0.0
+    /** RPaMp's clock, in seconds of drifting. */
+    var drift = 0.0
         private set
 
     /** Moves the three clocks on by [dt] seconds at the speed the levels give them; 0 for a still room. */
     fun advance(dt: Float, bass: Float, mid: Float) {
         spin += dt * (YANG_SPIN + bass * YANG_SPIN_BASS)
         flow += dt * (1.0 + bass * 0.6)
-        rise += dt * (1.0 + mid * 0.8)
+        drift += dt * (1.0 + mid * 0.8)
     }
 
     /**
@@ -91,31 +90,38 @@ class RoomFigures {
      * the small ones with the air (1 + air x 0.85), and the middle ball with the middle.
      *
      * The trail is not a framebuffer kept from frame to frame, which would be a second full pass and a
-     * read of last frame's texture on the Amiko: it is [ECHOES] more balls per ball, each further back
-     * along the orbit, smaller and lighter, summed into the same field. Where they overlap they melt
-     * into one tail. The louder the ball's level, the faster it turns and the longer its tail.
+     * read of last frame's texture on the Amiko: it is more balls per ball, each further back along the
+     * orbit, smaller and lighter, summed into the same field, so they melt into one tail. The echoes are
+     * spaced by length along the orbit ([trail]), not by time, so a ball that turns faster does not
+     * spread its tail into beads. A small ball's [SMALL_ECHOES] echoes are 0.045 of the height apart
+     * against its radius of 0.07, close enough to fill in one smooth streak (they were four at 0.09, and
+     * read as dots); a big ball's [BIG_ECHOES] are 0.09 apart against 0.15. The louder the ball's level,
+     * the faster it turns and the longer its tail: the big ones' spacing x (1 + bass x 0.6), the small
+     * ones' x (1 + air x 0.4), held below the radius of the last, smallest echo even at full air.
      */
     fun yang(t: Double, bass: Float, mid: Float, air: Float) {
         val bigOrbit = 0.24 + 0.03 * sin(t * 0.23)
         val smallOrbit = 0.39 + 0.04 * sin(t * 0.31 + 1.0)
         val bigR = 0.15 * (1.0 + bass * 0.62)
         val smallR = 0.07 * (1.0 + air * 0.85)
-        // Far enough apart along the orbit to show as a tail, near enough to melt into one: a big ball's
-        // echoes are 0.09 of the height apart, a small one's 0.09, against radii of 0.15 and 0.07.
-        val bigLag = 0.36 * (1.0 + bass * 0.6)
-        val smallLag = 0.22 * (1.0 + air * 0.6)
         for (ball in 0 until 2) {
-            orbit(big, ball, spin + ball * PI, bigOrbit, bigR, bigLag)
-            orbit(small, ball, spin * SMALL_RATE + PI / 2 + ball * PI, smallOrbit, smallR, smallLag)
+            trail(big, ball * (BIG_ECHOES + 1), spin + ball * PI, bigOrbit, bigR, 0.09 * (1.0 + bass * 0.6), BIG_ECHOES, 0.12, 0.6)
+            trail(small, ball * (SMALL_ECHOES + 1), spin * SMALL_RATE + PI / 2 + ball * PI, smallOrbit, smallR, 0.045 * (1.0 + air * 0.4), SMALL_ECHOES, 0.06, 0.8)
         }
         put(centre, 0, 0.0, 0.0, 0.30 * (1.0 + mid * 0.35), 0.0)
     }
 
-    /** One ball at [angle] on an orbit [distance] out, and its echoes behind it. */
-    private fun orbit(into: FloatArray, ball: Int, angle: Double, distance: Double, radius: Double, lag: Double) {
-        for (k in 0..ECHOES) {
-            val a = angle - k * lag
-            put(into, ball * (ECHOES + 1) + k, cos(a) * distance * WIDE, sin(a) * distance, radius * (1.0 - 0.12 * k), ECHO_FADE.pow(k))
+    /** One ball at [angle] on an orbit [distance] out, written from [first], and its [echoes] behind it,
+     * each [spacing] further back along the stretched orbit, [shrink] of the radius smaller and [fade]
+     * times as heavy as the one before. The step in angle is the spacing over how fast the orbit's length
+     * grows with the angle where the echo stands. */
+    private fun trail(into: FloatArray, first: Int, angle: Double, distance: Double, radius: Double, spacing: Double, echoes: Int, shrink: Double, fade: Double) {
+        var a = angle
+        for (k in 0..echoes) {
+            put(into, first + k, cos(a) * distance * WIDE, sin(a) * distance, radius * (1.0 - shrink * k), fade.pow(k))
+            val s = sin(a) * WIDE
+            val c = cos(a)
+            a -= spacing / (distance * sqrt(s * s + c * c))
         }
     }
 
@@ -141,33 +147,54 @@ class RoomFigures {
     }
 
     /**
-     * RPaMp. Seven columns spread across the width, each lit by one level ([STRAND_BAND]: neighbours
-     * hear different ones), which lifts its top (+0.22 of the height at full) and brightens it. Each
-     * sways in a wave that travels up it, and its head, a round glow at the top, now and then lifts
-     * clear of it and sinks back, as in the skin's picture. The floor glows higher and brighter with the
-     * bass. Colours step through tint, glow and shade along the row.
+     * RPaMp: the five ribbons of make_rpamp_ground.py, with its numbers (the bands that drew
+     * background-rpamp.jpg), so the still room is that picture. Here they move: each ribbon's phase swings
+     * slowly back and forth along it (1.1 radians, over 70 to 40 seconds of [drift]), so its curve flows
+     * and undulates; where it crosses the left edge rises and falls by 0.025 of the height, its sine
+     * deepens and flattens by a quarter, and its swell slides along it. Swinging, not running on, so the
+     * picture stays the skin's composition and two ribbons never come to lie on each other for long.
+     * At [drift] 0 every swing is at its middle: a fresh room is the picture itself.
+     *
+     * The music, gently. The bright main ribbon (the one that enters from the left at about 40% of the
+     * height and rises to the right, the script's second) takes the bass in its weight (1 + bass x 0.25)
+     * and thickness (1 + bass x 0.15), and its filament flares with the air, which has the quickest
+     * attack of the three, so it catches the transients. The ribbon that crosses it hears half the bass;
+     * the two below it the middle; the faint one along the top the air. The middle also hurries [drift].
+     * The two bright ribbons wear the tint, the others the glow, the shade and the glow.
      */
-    fun strands(bass: Float, mid: Float, air: Float) {
-        val r = rise
-        for (i in 0 until STRANDS) {
-            val level = when (STRAND_BAND[i]) {
-                0 -> bass
-                1 -> mid
+    fun ribbons(bass: Float, mid: Float, air: Float) {
+        val d = drift
+        for (i in 0 until RIBBONS) {
+            val level = when (i) {
+                0 -> bass * 0.5f
+                1 -> bass
+                2, 3 -> mid
                 else -> air
-            }
-            val x = -0.76 + i * (1.52 / (STRANDS - 1)) + 0.05 * sin(r * 0.047 + i * 3.1)
-            val top = 0.02 + 0.10 * sin(r * 0.19 + i * 1.9) + level * 0.22
-            val width = (0.065 + 0.015 * sin(r * 0.23 + i * 0.7)) * (1.0 + level * 0.3)
-            put(strandA, i, x, top, width, 0.45 + level * 0.85)
-            val sway = 0.025 + 0.015 * sin(r * 0.11 + i * 2.2)
-            val phase = r * (1.3 + 0.17 * i) + i * 1.7
-            put(strandB, i, sway, phase, (i * 0.73 + 0.2) % 2.0, 0.0)
-            // On the column's centre line at the head's height (the shader's sin(y x 7 - phase)).
-            val head = top + 0.03 + 0.07 * max(0.0, sin(r * 0.13 + i * 2.1))
-            heads[i * 2] = (x + sway * sin(head * 7.0 - phase)).toFloat()
-            heads[i * 2 + 1] = head.toFloat()
+            }.toDouble()
+            val k = i * 6
+            val y0 = BANDS[k]
+            val tilt = BANDS[k + 1]
+            val amp = BANDS[k + 2]
+            val freq = BANDS[k + 3]
+            val phase0 = BANDS[k + 4]
+            val width = BANDS[k + 5]
+            val phase = phase0 - 1.1 * sin(d * (0.09 + 0.02 * i))
+            put(
+                ribbonA, i,
+                y0 + 0.025 * sin(d * (0.031 + 0.006 * i)),
+                tilt,
+                amp * (1.0 + 0.25 * sin(d * (0.043 + 0.007 * i))),
+                2 * PI * freq,
+            )
+            put(ribbonB, i, phase, phase * 1.7, width * (1.0 + level * 0.15), SWELL[i])
+            put(
+                ribbonC, i,
+                phase0 * 0.6 + 0.5 * sin(d * (0.037 + 0.009 * i)),
+                WEIGHT[i] * (1.0 + level * 0.25),
+                0.22 + if (i == 1) air * 0.5 else 0.0,
+                COLOUR[i],
+            )
         }
-        put(floor, 0, 0.22 + bass * 0.08, 1.0 + bass * 0.8, r * 0.3, 0.0)
     }
 
     private fun put(into: FloatArray, i: Int, a: Double, b: Double, c: Double, d: Double) {
@@ -178,15 +205,16 @@ class RoomFigures {
     }
 
     companion object {
-        /** Echoes behind each of Yang's balls. */
-        const val ECHOES = 4
-        /** Yang's balls of one size and their echoes: two balls of 1 + [ECHOES]. */
-        const val YANG_LOBES = 2 * (ECHOES + 1)
+        /** Echoes behind each of Yang's big balls, and behind each small one. */
+        const val BIG_ECHOES = 4
+        const val SMALL_ECHOES = 8
+        /** Yang's big balls and their echoes: two of 1 + [BIG_ECHOES]. */
+        const val YANG_BIG = 2 * (BIG_ECHOES + 1)
+        /** Yang's small balls and their echoes: two of 1 + [SMALL_ECHOES]. */
+        const val YANG_SMALL = 2 * (SMALL_ECHOES + 1)
         const val LAVA_BLOBS = 7
-        const val STRANDS = 7
+        const val RIBBONS = 5
 
-        /** Each echo is this much lighter than the one before it. */
-        const val ECHO_FADE = 0.6
         /** Yang's turn with no music, radians a second: a turn in about 20 seconds. */
         const val YANG_SPIN = 0.32
         /** How much faster the bass at full turns it. */
@@ -195,7 +223,18 @@ class RoomFigures {
         /** Yang's orbits are this much wider than high. */
         const val WIDE = 1.3
 
-        /** Which level lights each of RPaMp's columns: 0 bass, 1 middle, 2 air. */
-        val STRAND_BAND = intArrayOf(0, 2, 1, 0, 1, 2, 0)
+        /** make_rpamp_ground.py's BANDS, six to a ribbon: y0 (from the top, as a share of the height),
+         * tilt, amp, freq, phase, width. Its swell and weight follow in [SWELL] and [WEIGHT]. */
+        private val BANDS = doubleArrayOf(
+            0.18, 0.30, 0.10, 0.9, 0.0, 0.20,
+            0.44, -0.22, 0.13, 0.6, 2.1, 0.16,
+            0.72, 0.18, 0.09, 1.2, 4.0, 0.22,
+            1.02, -0.26, 0.11, 0.8, 1.2, 0.18,
+            -0.06, 0.16, 0.08, 1.5, 3.3, 0.14,
+        )
+        private val SWELL = doubleArrayOf(0.55, 0.70, 0.45, 0.60, 0.50)
+        private val WEIGHT = doubleArrayOf(1.00, 0.90, 0.85, 0.70, 0.55)
+        /** Each ribbon's colour: 0 tint, 1 glow, 2 shade. */
+        private val COLOUR = doubleArrayOf(0.0, 0.0, 1.0, 2.0, 1.0)
     }
 }

@@ -151,8 +151,8 @@ void main() {
      *
      * The cost class is the original's: one pass at the eighth size, no texture reads, no second
      * buffer. The original spends twelve sines and cosines on its warps and fifteen lobes per pixel;
-     * Yang spends no trigonometry and twenty-one lobes, Lava one sine and ten lobes, RPaMp nine sines,
-     * nine exponentials and seven lobes.
+     * Yang spends no trigonometry and twenty-nine lobes, Lava one sine and ten lobes, RPaMp fifteen
+     * sines, eleven exponentials and one power.
      */
     private fun styleFragment(body: String) = """#version 300 es
 precision highp float;
@@ -191,12 +191,14 @@ void main() {
     /** Yang ([RoomFigures.yang]). The middle ball is the original's third family (its soft 1.08, its
      * ramp, lit by the middle where that is lit by the air); each pair is a family of its own, the big in
      * the tint and lit by the bass, the small in the glow and lit by the air, at the original's
-     * thresholds. An echo's weight scales its share of the field, so the tail fades as it thins. */
+     * thresholds. An echo's weight scales its share of the field, so the tail fades as it thins. The
+     * small balls have more echoes than the big ones, so they are summed in a loop of their own. */
     val YANG_FRAGMENT = styleFragment(
         """
-const int YANG_LOBES = ${RoomFigures.YANG_LOBES};
-uniform vec4 uBig[YANG_LOBES];
-uniform vec4 uSmall[YANG_LOBES];
+const int YANG_BIG = ${RoomFigures.YANG_BIG};
+const int YANG_SMALL = ${RoomFigures.YANG_SMALL};
+uniform vec4 uBig[YANG_BIG];
+uniform vec4 uSmall[YANG_SMALL];
 uniform vec4 uCentre;
 
 vec3 styleRoom(vec2 p)
@@ -207,9 +209,12 @@ vec3 styleRoom(vec2 p)
 
     float big = 0.0;
     float small = 0.0;
-    for (int i = 0; i < YANG_LOBES; i++)
+    for (int i = 0; i < YANG_BIG; i++)
     {
         big += rpmLobe(p, uBig[i].xy, uBig[i].z, 0.42) * uBig[i].w;
+    }
+    for (int i = 0; i < YANG_SMALL; i++)
+    {
         small += rpmLobe(p, uSmall[i].xy, uSmall[i].z, 0.60) * uSmall[i].w;
     }
     col = mix(col, uTint, smoothstep(0.30, 1.75, big));
@@ -266,50 +271,63 @@ vec3 styleRoom(vec2 p)
 """,
     )
 
-    /** RPaMp ([RoomFigures.strands]). Each column is a Gaussian across its swaying centre line, wider
-     * towards the floor and fading out above its top, with a round head; the floor is an exponential
-     * glow. As make_rpamp_ground.py does with its ribbons, they are summed and put through a soft knee
-     * (1 - exp(-1.05 x field)), so two columns that cross make one brighter sheet and never white. The
-     * colour is the columns' own, weighted by their share of the light, over the ground darkened
-     * towards the top. */
+    /** RPaMp ([RoomFigures.ribbons]): make_rpamp_ground.py, pixel for pixel, in the script's own frame
+     * (u across, v down, both 0 to 1). Each ribbon is a curve of two sines and a tilt, its light falling
+     * off on both sides as a Gaussian whose thickness swells along it, with a filament a fifth as thick
+     * along the crest. They are summed, lit from the top left, and put through the script's soft knee
+     * and exponent. The script normalises by the picture's own floor and 99th percentile; those are
+     * fixed here at the values its picture has (0.046 and 2.13), and the top is eased off above 0.9
+     * so a ribbon swollen by the bass reaches the crest colour and does not spread it into a sheet.
+     *
+     * The ramp is the script's, its stops made from the palette: the dark ground, then each ribbon's own
+     * colour (weighted by its share of the light) at 0.12, 0.39, 0.66 and 0.95 of itself, then the glow
+     * on the crests, which is where the brightest ribbon shades from the tint into the second colour.
+     * The picture is a background meant to be seen at full strength, so it is lifted [LIFT] times
+     * against the room's 0.62, which leaves it about as bright as the desktop's. */
     val RPAMP_FRAGMENT = styleFragment(
         """
-const int STRANDS = ${RoomFigures.STRANDS};
-uniform vec4 uStrandA[STRANDS];
-uniform vec4 uStrandB[STRANDS];
-uniform vec2 uHeads[STRANDS];
-uniform vec4 uFloor;
+const int RIBBONS = ${RoomFigures.RIBBONS};
+const float LIFT = 1.5;
+uniform vec4 uRibbonA[RIBBONS];
+uniform vec4 uRibbonB[RIBBONS];
+uniform vec4 uRibbonC[RIBBONS];
 
-vec3 strandColour(float m)
+vec3 ribbonColour(float m)
 {
     return mix(mix(uTint, uGlow, clamp(m, 0.0, 1.0)), uShade, clamp(m - 1.0, 0.0, 1.0));
 }
 
 vec3 styleRoom(vec2 p)
 {
-    // 0 at the top of the screen, 1 at the floor.
-    float down = 0.5 - p.y;
-    float fl = exp(-(p.y + 0.5) / uFloor.x) * uFloor.y * (1.0 + 0.22 * sin(p.x * 4.3 + uFloor.z));
-    float field = fl;
-    vec3 wash = strandColour(0.5 + 0.5 * sin(p.x * 2.2 - uFloor.z * 0.5)) * fl;
-    for (int i = 0; i < STRANDS; i++)
+    float u = p.x * uResolution.y / uResolution.x + 0.5;
+    float v = 0.5 - p.y;
+    float field = 0.0;
+    vec3 wash = vec3(0.0);
+    for (int i = 0; i < RIBBONS; i++)
     {
-        vec4 a = uStrandA[i];
-        vec4 b = uStrandB[i];
-        float x = a.x + b.x * sin(p.y * 7.0 - b.y);
-        float d = (p.x - x) / (a.z * (0.7 + 0.6 * down));
-        float body = exp(-d * d) * smoothstep(a.y + 0.06, a.y - 0.22, p.y);
-        float head = rpmLobe(p, uHeads[i], a.z * 1.26, 1.0);
-        float g = (body + 0.9 * head * head) * a.w;
+        vec4 a = uRibbonA[i];
+        vec4 b = uRibbonB[i];
+        vec4 c = uRibbonC[i];
+        float curve = a.x + a.y * u + a.z * sin(a.w * u + b.x) + 0.35 * a.z * sin(a.w * 2.3 * u + b.y);
+        float w = max(b.z * (1.0 + b.w * sin(2.8274 * u + c.x)), 0.04);
+        float d = (v - curve) / w;
+        float d2 = d * d;
+        float g = (exp(-d2) + c.z * exp(-25.0 * d2)) * c.y;
         field += g;
-        wash += strandColour(b.z) * g;
+        wash += ribbonColour(c.w) * g;
     }
     wash /= max(field, 1e-4);
-    float lit = 1.0 - exp(-1.05 * field);
-    vec3 dark = uGround * (0.35 + 0.65 * smoothstep(0.55, -0.45, p.y));
-    vec3 col = mix(dark, wash, lit);
-    col += wash * smoothstep(1.40, 3.00, field) * (0.10 + uBass * 0.35);
-    return col;
+    field *= 1.0 - 0.20 * (u * 0.65 + v * 0.35);
+    float n = max((field - 0.046) / 2.13, 0.0);
+    float lv = pow((1.0 - exp(-1.05 * n)) / 0.661, 2.35);
+    if (lv > 0.9) lv = 0.9 + 0.1 * (1.0 - exp(-(lv - 0.9) / 0.1));
+    vec3 col = uGround * 0.75;
+    col = mix(col, uGround * 0.9 + wash * 0.12, smoothstep(0.10, 0.45, lv));
+    col = mix(col, wash * 0.39, smoothstep(0.45, 0.66, lv));
+    col = mix(col, wash * 0.66, smoothstep(0.66, 0.84, lv));
+    col = mix(col, wash * 0.95, smoothstep(0.84, 0.96, lv));
+    col = mix(col, uGlow * 0.90, smoothstep(0.96, 1.08, lv));
+    return col * LIFT;
 }
 """,
     )

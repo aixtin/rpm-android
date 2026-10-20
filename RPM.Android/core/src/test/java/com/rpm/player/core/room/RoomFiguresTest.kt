@@ -16,8 +16,7 @@ class RoomFiguresTest {
         val f = RoomFigures()
         f.advance(3.7f, 0.4f, 0.2f)
         f.yang(3.7, 0.4f, 0.2f, 0.3f)
-        val other = RoomFigures.ECHOES + 1
-        for (family in listOf(f.big, f.small)) {
+        for ((family, other) in listOf(f.big to RoomFigures.BIG_ECHOES + 1, f.small to RoomFigures.SMALL_ECHOES + 1)) {
             assertEquals(-at(family, 0, 0), at(family, other, 0), 1e-5f)
             assertEquals(-at(family, 0, 1), at(family, other, 1), 1e-5f)
         }
@@ -36,7 +35,7 @@ class RoomFiguresTest {
     @Test fun eachEchoIsSmallerLighterAndFurtherBack() {
         val f = RoomFigures().apply { advance(2f, 0f, 0f); yang(2.0, 0f, 0f, 0f) }
         var angle = atan2(at(f.big, 0, 1).toDouble(), at(f.big, 0, 0) / RoomFigures.WIDE)
-        for (k in 1..RoomFigures.ECHOES) {
+        for (k in 1..RoomFigures.BIG_ECHOES) {
             assertTrue(at(f.big, k, 2) < at(f.big, k - 1, 2))
             assertTrue(at(f.big, k, 3) < at(f.big, k - 1, 3))
             val a = atan2(at(f.big, k, 1).toDouble(), at(f.big, k, 0) / RoomFigures.WIDE)
@@ -54,13 +53,53 @@ class RoomFiguresTest {
         assertTrue(loud.spin > calm.spin * 2)
     }
 
+    @Test fun theSmallBallsTrailIsOneStreakWhateverTheSpin() {
+        // Echoes stand closer than the smaller of two neighbours' radii, so they overlap into one tail,
+        // at any spin and at the loudest air, which spaces them furthest.
+        for (spin in listOf(0f, 3f, 40f, 400f)) {
+            val f = RoomFigures().apply { advance(spin, 1f, 0f); yang(spin.toDouble(), 1f, 0f, 1f) }
+            var length = 0.0
+            for (k in 1..RoomFigures.SMALL_ECHOES) {
+                val gap = hypot((at(f.small, k, 0) - at(f.small, k - 1, 0)).toDouble(), (at(f.small, k, 1) - at(f.small, k - 1, 1)).toDouble())
+                assertTrue("echo $k is $gap away", gap < at(f.small, k, 2))
+                length += gap
+            }
+            // Spaced by length along the orbit: the same tail at every spin (chords, so a little short).
+            assertEquals(0.045 * 1.4 * RoomFigures.SMALL_ECHOES, length, 0.012)
+        }
+    }
+
     @Test fun aStillRoomKeepsItsPose() {
         val f = RoomFigures().apply { advance(5f, 0.5f, 0.5f) }
-        f.strands(0f, 0f, 0f)
-        val before = f.strandA.copyOf()
+        f.ribbons(0f, 0f, 0f)
+        val before = f.ribbonB.copyOf()
         f.advance(0f, 1f, 1f)
-        f.strands(0f, 0f, 0f)
-        assertArrayEquals(before, f.strandA, 0f)
+        f.ribbons(0f, 0f, 0f)
+        assertArrayEquals(before, f.ribbonB, 0f)
+    }
+
+    @Test fun aFreshRoomIsTheSkinsPicture() {
+        // At drift 0 every swing is at its middle: the script's numbers (make_rpamp_ground.py's BANDS).
+        val f = RoomFigures().apply { ribbons(0f, 0f, 0f) }
+        assertEquals(0.44f, at(f.ribbonA, 1, 0), 1e-6f)
+        assertEquals(0.13f, at(f.ribbonA, 1, 2), 1e-6f)
+        assertEquals(2.1f, at(f.ribbonB, 1, 0), 1e-6f)
+        assertEquals(0.16f, at(f.ribbonB, 1, 2), 1e-6f)
+        assertEquals(0.90f, at(f.ribbonC, 1, 1), 1e-6f)
+        assertEquals(0.22f, at(f.ribbonC, 1, 2), 1e-6f)
+    }
+
+    @Test fun theRibbonsSwingButNeverWanderOff() {
+        val f = RoomFigures()
+        repeat(4000) {
+            f.advance(0.25f, 0f, 1f)
+            f.ribbons(0f, 0f, 0f)
+            for (i in 0 until RoomFigures.RIBBONS) {
+                val start = RoomFigures().apply { ribbons(0f, 0f, 0f) }
+                assertTrue(abs(at(f.ribbonB, i, 0) - at(start.ribbonB, i, 0)) <= 1.1f + 1e-5f)
+                assertTrue(abs(at(f.ribbonA, i, 0) - at(start.ribbonA, i, 0)) <= 0.025f + 1e-5f)
+            }
+        }
     }
 
     @Test fun lavaStaysOnTheScreen() {
@@ -81,24 +120,14 @@ class RoomFiguresTest {
         assertTrue(loud.back[2] > quiet.back[2] * 1.4f)
     }
 
-    @Test fun aLoudBandLiftsAndBrightensItsColumns() {
-        val quiet = RoomFigures().apply { strands(0f, 0f, 0f) }
-        val bass = RoomFigures().apply { strands(1f, 0f, 0f) }
-        for (i in 0 until RoomFigures.STRANDS) {
-            val onBass = RoomFigures.STRAND_BAND[i] == 0
-            assertEquals(onBass, at(bass.strandA, i, 1) > at(quiet.strandA, i, 1))
-            assertEquals(onBass, at(bass.strandA, i, 3) > at(quiet.strandA, i, 3))
-        }
-        assertTrue(bass.floor[1] > quiet.floor[1])
-    }
-
-    @Test fun eachHeadSitsOnItsColumnAboveItsTop() {
-        val f = RoomFigures().apply { advance(7f, 0f, 0.4f); strands(0.2f, 0.4f, 0.6f) }
-        for (i in 0 until RoomFigures.STRANDS) {
-            val headY = f.heads[i * 2 + 1]
-            assertTrue(headY > at(f.strandA, i, 1))
-            // Within the column's sway of its centre.
-            assertTrue(hypot((f.heads[i * 2] - at(f.strandA, i, 0)).toDouble(), 0.0) <= at(f.strandB, i, 0) + 1e-6)
-        }
+    @Test fun theBassSwellsTheMainRibbonAndTheAirFlaresItsFilament() {
+        val quiet = RoomFigures().apply { ribbons(0f, 0f, 0f) }
+        val bass = RoomFigures().apply { ribbons(1f, 0f, 0f) }
+        val air = RoomFigures().apply { ribbons(0f, 0f, 1f) }
+        assertTrue(at(bass.ribbonC, 1, 1) > at(quiet.ribbonC, 1, 1))
+        assertTrue(at(bass.ribbonB, 1, 2) > at(quiet.ribbonB, 1, 2))
+        assertEquals(at(quiet.ribbonC, 2, 1), at(bass.ribbonC, 2, 1), 0f)
+        assertTrue(at(air.ribbonC, 1, 2) > at(quiet.ribbonC, 1, 2) * 2)
+        assertEquals(at(quiet.ribbonC, 0, 2), at(air.ribbonC, 0, 2), 0f)
     }
 }

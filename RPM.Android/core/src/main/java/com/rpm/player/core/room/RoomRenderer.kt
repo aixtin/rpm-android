@@ -270,7 +270,7 @@ class RoomRenderer(
         RoomStyle.Original -> RoomPass(program(RoomShaders.VERTEX, RoomShaders.ROOM_FRAGMENT), listOf("uLobes1", "uLobes2", "uLobes3"))
         RoomStyle.Yang -> RoomPass(program(RoomShaders.VERTEX, RoomShaders.YANG_FRAGMENT), listOf("uBig", "uSmall", "uCentre"))
         RoomStyle.Lava -> RoomPass(program(RoomShaders.VERTEX, RoomShaders.LAVA_FRAGMENT), listOf("uBlobs", "uPools", "uBack"))
-        RoomStyle.RPaMp -> RoomPass(program(RoomShaders.VERTEX, RoomShaders.RPAMP_FRAGMENT), listOf("uStrandA", "uStrandB", "uHeads", "uFloor"))
+        RoomStyle.RPaMp -> RoomPass(program(RoomShaders.VERTEX, RoomShaders.RPAMP_FRAGMENT), listOf("uRibbonA", "uRibbonB", "uRibbonC"))
     }.also { passes[style.ordinal] = it }
 
     /** [style]'s figures at [clock] and these levels, worked out and handed to [pass]'s program. */
@@ -285,8 +285,8 @@ class RoomRenderer(
             }
             RoomStyle.Yang -> {
                 figures.yang(clock, bass, mid, air)
-                GLES30.glUniform4fv(a[0], RoomFigures.YANG_LOBES, figures.big, 0)
-                GLES30.glUniform4fv(a[1], RoomFigures.YANG_LOBES, figures.small, 0)
+                GLES30.glUniform4fv(a[0], RoomFigures.YANG_BIG, figures.big, 0)
+                GLES30.glUniform4fv(a[1], RoomFigures.YANG_SMALL, figures.small, 0)
                 GLES30.glUniform4fv(a[2], 1, figures.centre, 0)
             }
             RoomStyle.Lava -> {
@@ -296,11 +296,10 @@ class RoomRenderer(
                 GLES30.glUniform4fv(a[2], 1, figures.back, 0)
             }
             RoomStyle.RPaMp -> {
-                figures.strands(bass, mid, air)
-                GLES30.glUniform4fv(a[0], RoomFigures.STRANDS, figures.strandA, 0)
-                GLES30.glUniform4fv(a[1], RoomFigures.STRANDS, figures.strandB, 0)
-                GLES30.glUniform2fv(a[2], RoomFigures.STRANDS, figures.heads, 0)
-                GLES30.glUniform4fv(a[3], 1, figures.floor, 0)
+                figures.ribbons(bass, mid, air)
+                GLES30.glUniform4fv(a[0], RoomFigures.RIBBONS, figures.ribbonA, 0)
+                GLES30.glUniform4fv(a[1], RoomFigures.RIBBONS, figures.ribbonB, 0)
+                GLES30.glUniform4fv(a[2], RoomFigures.RIBBONS, figures.ribbonC, 0)
             }
         }
     }

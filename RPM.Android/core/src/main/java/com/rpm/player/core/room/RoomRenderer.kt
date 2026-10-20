@@ -33,6 +33,10 @@ class RoomTarget {
     /** The person's picture setting: every colour of the room is multiplied by this. It is 1 for Standard
      * (the TV's `PictureLook`). Not eased: it changes when the setting does. */
     @Volatile var light: Float = 1f
+
+    /** Which animation the room draws ([RoomStyle]), from the TV's settings. A change shows on the next
+     * frame, as a cut: a fade between two would draw both, twice the room's pass for its length. */
+    @Volatile var style: RoomStyle = RoomStyle.Original
 }
 
 /**
@@ -64,7 +68,10 @@ class RoomRenderer(
     private val dim: Float,
 ) : GLSurfaceView.Renderer {
 
-    private var roomProgram = 0
+    /** Each style's room program and where its uniforms are, built the first time the style is drawn in
+     * this GL context: the stills draw one picture in a context of their own, and compiling all four
+     * there, or at every start, would be spent on styles not shown. GL thread only. */
+    private val passes = arrayOfNulls<RoomPass>(RoomStyle.entries.size)
     private var presentProgram = 0
     private var framebuffer = 0
     private var texture = 0
@@ -73,22 +80,9 @@ class RoomRenderer(
     private var roomW = 0
     private var roomH = 0
 
-    private var uResolution = -1
-    private var uTime = -1
-    private var uBass = -1
-    private var uMid = -1
-    private var uAir = -1
-    private var uGround = -1
-    private var uTint = -1
-    private var uGlow = -1
-    private var uShade = -1
-    private var uLobes1 = -1
-    private var uLobes2 = -1
-    private var uLobes3 = -1
     private var uRoom = -1
     private var uNoise = -1
     private var uScreen = -1
-    private var uRoomBare = -1
     private var uBare = -1
     private var uBands = -1
     private var uBarTint = -1
@@ -103,6 +97,7 @@ class RoomRenderer(
     private var uBright = -1
     private var uDim = -1
     private val orbits = RoomOrbits()
+    private val figures = RoomFigures()
 
     private var startNanos = 0L
     private var lastNanos = 0L
@@ -115,41 +110,48 @@ class RoomRenderer(
 
     /** The clock a still room stopped at; negative while the room is live. GL thread only. */
     private var stoppedAt = -1.0
-    /** The colours and bare the room texture was last drawn with; null when it must be drawn again. GL thread only. */
-    private var roomDrawn: Pair<RoomPalette, Float>? = null
+    /** What the room texture was last drawn with; null when it must be drawn again. GL thread only. */
+    private var roomDrawn: Drawn? = null
     /** What the last frame was drawn for, when the next frame would draw the same; null otherwise.
      * Written on the GL thread, read by [wantsFrame] on the main thread. */
     @Volatile private var restingOn: Rest? = null
 
-    private data class Rest(val palette: RoomPalette, val bare: Float, val push: Float, val brightness: Float, val light: Float)
+    private data class Rest(val palette: RoomPalette, val bare: Float, val push: Float, val brightness: Float, val light: Float, val style: RoomStyle)
+
+    private data class Drawn(val palette: RoomPalette, val bare: Float, val style: RoomStyle)
+
+    /** One style's room program and its uniforms. [arrays] are where the style's figure arrays are, by
+     * the names its program gives them. */
+    private class RoomPass(val program: Int, arrayNames: List<String>) {
+        private fun at(name: String) = GLES30.glGetUniformLocation(program, name)
+        val resolution = at("uResolution")
+        val time = at("uTime")
+        val bass = at("uBass")
+        val mid = at("uMid")
+        val air = at("uAir")
+        val ground = at("uGround")
+        val tint = at("uTint")
+        val glow = at("uGlow")
+        val shade = at("uShade")
+        val bare = at("uBare")
+        val arrays = IntArray(arrayNames.size) { at(arrayNames[it]) }
+    }
 
     /** Whether a frame drawn now would differ from the last one. Always true for a live room. Called by
      * the pacer on the main thread once per display frame. */
     fun wantsFrame(): Boolean {
         val rest = restingOn ?: return true
-        return !(target.still && rest.palette == target.palette && rest.bare == target.bare && rest.push == target.push && rest.brightness == target.brightness && rest.light == target.light)
+        return !(target.still && rest.palette == target.palette && rest.bare == target.bare && rest.push == target.push && rest.brightness == target.brightness && rest.light == target.light && rest.style == target.style)
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        roomProgram = program(RoomShaders.VERTEX, RoomShaders.ROOM_FRAGMENT)
+        // A new context: whatever programs the last one had are gone with it.
+        passes.fill(null)
         presentProgram = program(RoomShaders.VERTEX, RoomShaders.PRESENT_FRAGMENT)
-        uResolution = GLES30.glGetUniformLocation(roomProgram, "uResolution")
-        uTime = GLES30.glGetUniformLocation(roomProgram, "uTime")
-        uBass = GLES30.glGetUniformLocation(roomProgram, "uBass")
-        uMid = GLES30.glGetUniformLocation(roomProgram, "uMid")
-        uAir = GLES30.glGetUniformLocation(roomProgram, "uAir")
-        uGround = GLES30.glGetUniformLocation(roomProgram, "uGround")
-        uTint = GLES30.glGetUniformLocation(roomProgram, "uTint")
-        uGlow = GLES30.glGetUniformLocation(roomProgram, "uGlow")
-        uShade = GLES30.glGetUniformLocation(roomProgram, "uShade")
-        uLobes1 = GLES30.glGetUniformLocation(roomProgram, "uLobes1")
-        uLobes2 = GLES30.glGetUniformLocation(roomProgram, "uLobes2")
-        uLobes3 = GLES30.glGetUniformLocation(roomProgram, "uLobes3")
         uRoom = GLES30.glGetUniformLocation(presentProgram, "uRoom")
         uNoise = GLES30.glGetUniformLocation(presentProgram, "uNoise")
         noise = makeNoise()
         uScreen = GLES30.glGetUniformLocation(presentProgram, "uScreen")
-        uRoomBare = GLES30.glGetUniformLocation(roomProgram, "uBare")
         uBare = GLES30.glGetUniformLocation(presentProgram, "uBare")
         uBands = GLES30.glGetUniformLocation(presentProgram, "uBands")
         uBarTint = GLES30.glGetUniformLocation(presentProgram, "uTint")
@@ -188,6 +190,7 @@ class RoomRenderer(
         val goalPush = target.push
         val goalBrightness = target.brightness
         val light = target.light
+        val style = target.style
 
         // Eased as the desktop's stage eases it, at 1 - exp(-dt * 5.5) per frame (PegasusStage.cs).
         bare += (goalBare - bare) * (1f - kotlin.math.exp(-dt * 5.5f))
@@ -208,30 +211,30 @@ class RoomRenderer(
         }
 
         val l = levels
-        if (!still || roomDrawn != Pair(palette, bare)) {
+        val bass = if (still) 0f else l?.bass ?: 0f
+        val mid = if (still) 0f else l?.middle ?: 0f
+        val air = if (still) 0f else l?.air ?: 0f
+        // Every style's clock runs on while another is shown, so a switch back finds it moving.
+        figures.advance(if (still) 0f else dt, bass, mid)
+        if (!still || roomDrawn != Drawn(palette, bare, style)) {
             val clock = if (still) stoppedAt else seconds
+            val pass = pass(style)
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
             GLES30.glViewport(0, 0, roomW, roomH)
-            GLES30.glUseProgram(roomProgram)
-            GLES30.glUniform2f(uResolution, roomW.toFloat(), roomH.toFloat())
-            GLES30.glUniform1f(uTime, clock.toFloat())
-            val bass = if (still) 0f else l?.bass ?: 0f
-            val mid = if (still) 0f else l?.middle ?: 0f
-            val air = if (still) 0f else l?.air ?: 0f
-            GLES30.glUniform1f(uBass, bass)
-            GLES30.glUniform1f(uMid, mid)
-            GLES30.glUniform1f(uAir, air)
-            orbits.update(clock, bass, mid, air)
-            GLES30.glUniform3fv(uLobes1, RoomOrbits.LOBES1, orbits.lobes1, 0)
-            GLES30.glUniform3fv(uLobes2, RoomOrbits.LOBES2, orbits.lobes2, 0)
-            GLES30.glUniform3fv(uLobes3, RoomOrbits.LOBES3, orbits.lobes3, 0)
-            uniform(uGround, palette.ground)
-            uniform(uTint, palette.tint)
-            uniform(uGlow, palette.glow)
-            uniform(uShade, palette.shade)
-            GLES30.glUniform1f(uRoomBare, bare)
+            GLES30.glUseProgram(pass.program)
+            GLES30.glUniform2f(pass.resolution, roomW.toFloat(), roomH.toFloat())
+            GLES30.glUniform1f(pass.time, clock.toFloat())
+            GLES30.glUniform1f(pass.bass, bass)
+            GLES30.glUniform1f(pass.mid, mid)
+            GLES30.glUniform1f(pass.air, air)
+            figuresFor(style, pass, clock, bass, mid, air)
+            uniform(pass.ground, palette.ground)
+            uniform(pass.tint, palette.tint)
+            uniform(pass.glow, palette.glow)
+            uniform(pass.shade, palette.shade)
+            GLES30.glUniform1f(pass.bare, bare)
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
-            roomDrawn = if (still) Pair(palette, bare) else null
+            roomDrawn = if (still) Drawn(palette, bare, style) else null
         }
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
@@ -257,8 +260,49 @@ class RoomRenderer(
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
 
         val rests = still && bare == goalBare && push == goalPush && brightness == goalBrightness && palette == goal && bare >= 0.999f
-        restingOn = if (rests) Rest(goal, goalBare, goalPush, goalBrightness, light) else null
+        restingOn = if (rests) Rest(goal, goalBare, goalPush, goalBrightness, light, style) else null
         if (measure) stats.frame(now, System.nanoTime() - now, scale, roomW, roomH, l)
+    }
+
+    /** [style]'s program, built the first time it is asked for in this context. A uniform a program
+     * does not use is at -1, which GL ignores (the new styles have no use for `uTime`). */
+    private fun pass(style: RoomStyle): RoomPass = passes[style.ordinal] ?: when (style) {
+        RoomStyle.Original -> RoomPass(program(RoomShaders.VERTEX, RoomShaders.ROOM_FRAGMENT), listOf("uLobes1", "uLobes2", "uLobes3"))
+        RoomStyle.Yang -> RoomPass(program(RoomShaders.VERTEX, RoomShaders.YANG_FRAGMENT), listOf("uBig", "uSmall", "uCentre"))
+        RoomStyle.Lava -> RoomPass(program(RoomShaders.VERTEX, RoomShaders.LAVA_FRAGMENT), listOf("uBlobs", "uPools", "uBack"))
+        RoomStyle.RPaMp -> RoomPass(program(RoomShaders.VERTEX, RoomShaders.RPAMP_FRAGMENT), listOf("uStrandA", "uStrandB", "uHeads", "uFloor"))
+    }.also { passes[style.ordinal] = it }
+
+    /** [style]'s figures at [clock] and these levels, worked out and handed to [pass]'s program. */
+    private fun figuresFor(style: RoomStyle, pass: RoomPass, clock: Double, bass: Float, mid: Float, air: Float) {
+        val a = pass.arrays
+        when (style) {
+            RoomStyle.Original -> {
+                orbits.update(clock, bass, mid, air)
+                GLES30.glUniform3fv(a[0], RoomOrbits.LOBES1, orbits.lobes1, 0)
+                GLES30.glUniform3fv(a[1], RoomOrbits.LOBES2, orbits.lobes2, 0)
+                GLES30.glUniform3fv(a[2], RoomOrbits.LOBES3, orbits.lobes3, 0)
+            }
+            RoomStyle.Yang -> {
+                figures.yang(clock, bass, mid, air)
+                GLES30.glUniform4fv(a[0], RoomFigures.YANG_LOBES, figures.big, 0)
+                GLES30.glUniform4fv(a[1], RoomFigures.YANG_LOBES, figures.small, 0)
+                GLES30.glUniform4fv(a[2], 1, figures.centre, 0)
+            }
+            RoomStyle.Lava -> {
+                figures.lava(bass, mid)
+                GLES30.glUniform4fv(a[0], RoomFigures.LAVA_BLOBS, figures.blobs, 0)
+                GLES30.glUniform4fv(a[1], 1, figures.pools, 0)
+                GLES30.glUniform4fv(a[2], 1, figures.back, 0)
+            }
+            RoomStyle.RPaMp -> {
+                figures.strands(bass, mid, air)
+                GLES30.glUniform4fv(a[0], RoomFigures.STRANDS, figures.strandA, 0)
+                GLES30.glUniform4fv(a[1], RoomFigures.STRANDS, figures.strandB, 0)
+                GLES30.glUniform2fv(a[2], RoomFigures.STRANDS, figures.heads, 0)
+                GLES30.glUniform4fv(a[3], 1, figures.floor, 0)
+            }
+        }
     }
 
     /** One frame of the analysis. Rebuilt when the tap starts holding another sample rate. The

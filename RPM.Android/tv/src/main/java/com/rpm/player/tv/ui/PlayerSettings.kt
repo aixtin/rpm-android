@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import com.rpm.player.core.playback.LevelMode
 import com.rpm.player.core.playback.Levelling
 import com.rpm.player.core.art.OutputPixels
+import com.rpm.player.core.room.RoomStyle
 
 /**
  * The settings the TV keeps for the person, shown in the side menu's settings panel: the resolution the screens
@@ -154,6 +155,16 @@ class PlayerSettings(context: Context) {
         prefs.edit().putString(KEY_MINI, miniPlace.name).apply()
     }
 
+    /** Which animation the room draws behind the player and the screens ([RoomStyle]); the original by
+     * default. Read by the room on its next frame, so a change shows while the settings are open. */
+    var roomStyle by mutableStateOf(prefs.getString(KEY_ROOM_STYLE, null)?.let { name -> RoomStyle.entries.firstOrNull { it.name == name } } ?: RoomStyle.Original)
+        private set
+
+    fun nextRoomStyle() {
+        roomStyle = RoomStyle.entries[(roomStyle.ordinal + 1) % RoomStyle.entries.size]
+        prefs.edit().putString(KEY_ROOM_STYLE, roomStyle.name).apply()
+    }
+
     /** Whether the sung lyric line lights word by word; off by default. */
     var karaoke by mutableStateOf(prefs.getBoolean(KEY_KARAOKE, false))
         private set
@@ -232,5 +243,6 @@ class PlayerSettings(context: Context) {
         private const val KEY_SETUP = "setup.pending"
         private const val KEY_MINI = "mini.place"
         private const val KEY_LEGEND = "screens.legend"
+        private const val KEY_ROOM_STYLE = "room.style"
     }
 }

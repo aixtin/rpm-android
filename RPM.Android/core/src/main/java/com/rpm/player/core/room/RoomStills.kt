@@ -47,11 +47,11 @@ class RoomStills(private val tap: AudioTap) {
     private val thread = HandlerThread("rpm.room-still").apply { start() }
     private val dispatcher = Handler(thread.looper).asCoroutineDispatcher()
 
-    /** The still room in [palette], [dim]med, [width] by [height]; null when no GL context could be made. */
-    suspend fun picture(palette: RoomPalette, width: Int, height: Int, dim: Float): Bitmap? =
-        withContext(dispatcher) { draw(palette, width, height, dim) }
+    /** The still room in [palette] and [style], [dim]med, [width] by [height]; null when no GL context could be made. */
+    suspend fun picture(palette: RoomPalette, style: RoomStyle, width: Int, height: Int, dim: Float): Bitmap? =
+        withContext(dispatcher) { draw(palette, style, width, height, dim) }
 
-    private fun draw(palette: RoomPalette, width: Int, height: Int, dim: Float): Bitmap? {
+    private fun draw(palette: RoomPalette, style: RoomStyle, width: Int, height: Int, dim: Float): Bitmap? {
         val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         val version = IntArray(2)
         // Not terminated afterwards: the display is the process's, and the window's renderer uses it too.
@@ -73,6 +73,7 @@ class RoomStills(private val tap: AudioTap) {
             if (surface == EGL14.EGL_NO_SURFACE || !EGL14.eglMakeCurrent(display, surface, surface, context)) return null
             val target = RoomTarget().also {
                 it.palette = palette
+                it.style = style
                 it.still = true
             }
             val renderer = RoomRenderer(tap, target, RoomTuning.scale, android.util.Size(width, height), measure = false, dim = dim)
@@ -114,14 +115,14 @@ class RoomStills(private val tap: AudioTap) {
 }
 
 /**
- * The still room as a picture filling [modifier]'s box ([RoomStills]), in [palette], [dim]med. A change
- * of colours draws the new picture and fades it in over the last one in [FADE_MS], where the room's
+ * The still room as a picture filling [modifier]'s box ([RoomStills]), in [palette] and [style], [dim]med.
+ * A change of colours or of style draws the new picture and fades it in over the last one in [FADE_MS], where the room's
  * surface eases its colours over about a second. [onShown] is told true in the composition that first
  * draws a picture, so the caller can stop drawing what the picture replaces in the same frame. Nothing
  * is drawn before then.
  */
 @Composable
-fun RoomPicture(stills: RoomStills, palette: RoomPalette, dim: Float, onShown: () -> Unit, modifier: Modifier) {
+fun RoomPicture(stills: RoomStills, palette: RoomPalette, style: RoomStyle, dim: Float, onShown: () -> Unit, modifier: Modifier) {
     BoxWithConstraints(modifier) {
         val width = constraints.maxWidth
         val height = constraints.maxHeight
@@ -130,9 +131,9 @@ fun RoomPicture(stills: RoomStills, palette: RoomPalette, dim: Float, onShown: (
         val fade = remember { Animatable(1f) }
         val tell by rememberUpdatedState(onShown)
 
-        LaunchedEffect(palette, width, height, dim) {
+        LaunchedEffect(palette, style, width, height, dim) {
             if (width <= 0 || height <= 0) return@LaunchedEffect
-            val next = stills.picture(palette, width, height, dim)?.asImageBitmap() ?: return@LaunchedEffect
+            val next = stills.picture(palette, style, width, height, dim)?.asImageBitmap() ?: return@LaunchedEffect
             val before = shown
             if (before == null) {
                 shown = next

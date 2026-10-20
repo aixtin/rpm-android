@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.rpm.player.core.R
 import com.rpm.player.core.Region
+import com.rpm.player.core.room.RoomStyle
 import kotlinx.coroutines.launch
 
 /** Where an entry of the side menu goes: a screen, opened over home, or the player. */
@@ -527,6 +528,18 @@ private fun settingLines(page: SettingsPage, settings: PlayerSettings, account: 
                     },
                 ),
                 settings::nextDefaultView,
+            ),
+            SettingLine(
+                stringResource(R.string.Tv_SettingsRoomStyle),
+                stringResource(
+                    when (settings.roomStyle) {
+                        RoomStyle.Original -> R.string.Tv_RoomStyleOriginal
+                        RoomStyle.Yang -> R.string.Tv_RoomStyleYang
+                        RoomStyle.Lava -> R.string.Tv_RoomStyleLava
+                        RoomStyle.RPaMp -> R.string.Tv_RoomStyleRPaMp
+                    },
+                ),
+                settings::nextRoomStyle,
             ),
         )
     }

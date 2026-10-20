@@ -217,6 +217,7 @@ fun RpmApp(
         val motion = services.motion.level
         SideEffect { room.still = motion >= Motion.Still }
         SideEffect { room.light = settings.picture.light }
+        SideEffect { room.style = settings.roomStyle }
         var pagePicture by remember { mutableStateOf<Any?>(null) }
         // A genre's page paints the room in the genre's own colours rather than in a picture's.
         var pagePalette by remember { mutableStateOf<RoomPalette?>(null) }
@@ -385,7 +386,7 @@ fun RpmApp(
                 // A change of backdrop shows the new one in the old one's place; the surface is not brought back for it.
                 val dim = (1f - Ink.Scrim.alpha) * settings.picture.light
                 if (standing[0] == PageBackground.Room) {
-                    RoomPicture(services.roomStills, reading?.room ?: RoomPalette.FALLBACK, dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize())
+                    RoomPicture(services.roomStills, reading?.room ?: RoomPalette.FALLBACK, settings.roomStyle, dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize())
                 } else {
                     BackdropPicture(standing[0], dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize())
                 }

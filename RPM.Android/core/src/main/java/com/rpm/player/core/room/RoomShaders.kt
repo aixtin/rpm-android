@@ -143,6 +143,177 @@ void main() {
 }
 """
 
+    /**
+     * The TV's other rooms ([RoomStyle]), each a `styleRoom(p)` in place of `rpmRoom`, with the same
+     * uniforms, the same plane, the same dimming to 0.62, the same left-hand dimming under the spread
+     * view and the same vignette as [ROOM_FRAGMENT], so the present pass, the spectrum and the stills
+     * take them as they take the original. Their figures come from [RoomFigures] as vec4 arrays.
+     *
+     * The cost class is the original's: one pass at the eighth size, no texture reads, no second
+     * buffer. The original spends twelve sines and cosines on its warps and fifteen lobes per pixel;
+     * Yang spends no trigonometry and twenty-one lobes, Lava one sine and ten lobes, RPaMp nine sines,
+     * nine exponentials and seven lobes.
+     */
+    private fun styleFragment(body: String) = """#version 300 es
+precision highp float;
+uniform vec2 uResolution;
+uniform float uTime;
+uniform float uBass;
+uniform float uMid;
+uniform float uAir;
+uniform vec3 uGround;
+uniform vec3 uTint;
+uniform vec3 uGlow;
+uniform vec3 uShade;
+uniform float uBare;
+out vec4 fragColor;
+
+// A lobe with no edge, as the original's: it never reaches zero, so lobes melt into one another.
+float rpmLobe(vec2 p, vec2 c, float r, float soft)
+{
+    vec2 d = p - c;
+    float r2 = r * r;
+    return r2 / (dot(d, d) + r2 * soft);
+}
+$body
+void main() {
+    vec2 p = (gl_FragCoord.xy - 0.5 * uResolution) / uResolution.y;
+    vec3 col = styleRoom(p);
+    col *= 0.62;
+    vec2 uv = gl_FragCoord.xy / uResolution;
+    col *= mix(0.40 + 0.60 * smoothstep(0.02, 0.44, uv.x), 1.0, uBare);
+    float vig = pow(16.0 * uv.x * uv.y * (1.0 - uv.x) * (1.0 - uv.y), 0.20);
+    col *= 0.42 + 0.58 * vig;
+    fragColor = vec4(max(col, vec3(0.0)), 1.0);
+}
+"""
+
+    /** Yang ([RoomFigures.yang]). The middle ball is the original's third family (its soft 1.08, its
+     * ramp, lit by the middle where that is lit by the air); each pair is a family of its own, the big in
+     * the tint and lit by the bass, the small in the glow and lit by the air, at the original's
+     * thresholds. An echo's weight scales its share of the field, so the tail fades as it thins. */
+    val YANG_FRAGMENT = styleFragment(
+        """
+const int YANG_LOBES = ${RoomFigures.YANG_LOBES};
+uniform vec4 uBig[YANG_LOBES];
+uniform vec4 uSmall[YANG_LOBES];
+uniform vec4 uCentre;
+
+vec3 styleRoom(vec2 p)
+{
+    float c = rpmLobe(p, uCentre.xy, uCentre.z, 1.08);
+    vec3 col = mix(uGround, uShade, smoothstep(0.16, 1.13, c) * 0.70);
+    col += uShade * smoothstep(0.60, 1.60, c) * (0.16 + uMid * 0.62);
+
+    float big = 0.0;
+    float small = 0.0;
+    for (int i = 0; i < YANG_LOBES; i++)
+    {
+        big += rpmLobe(p, uBig[i].xy, uBig[i].z, 0.42) * uBig[i].w;
+        small += rpmLobe(p, uSmall[i].xy, uSmall[i].z, 0.60) * uSmall[i].w;
+    }
+    col = mix(col, uTint, smoothstep(0.30, 1.75, big));
+    col += uTint * smoothstep(1.60, 3.40, big) * (0.12 + uBass * 0.44);
+    col = mix(col, uGlow, smoothstep(0.25, 1.60, small) * 0.85);
+    col += uGlow * smoothstep(1.20, 3.00, small) * (0.14 + uAir * 0.40);
+    return col;
+}
+""",
+    )
+
+    /** Lava ([RoomFigures.lava]). The background ball is drawn as Yang's middle one, lit by the middle.
+     * The pools are lobes in one direction only, a band across the screen with a slow ripple, summed into
+     * the blobs' field so a blob that reaches one melts into it. The blobs wear the original's first
+     * family's colours, weighted by the square as it weights them, and their edge is narrower than the
+     * original's (0.70 to 1.30 of the field, not 0.30 to 1.75), so they read as wax and not as haze. */
+    val LAVA_FRAGMENT = styleFragment(
+        """
+const int LAVA_BLOBS = ${RoomFigures.LAVA_BLOBS};
+uniform vec4 uBlobs[LAVA_BLOBS];
+uniform vec4 uPools;
+uniform vec4 uBack;
+
+vec3 styleRoom(vec2 p)
+{
+    float b = rpmLobe(p, uBack.xy, uBack.z, 1.08);
+    vec3 col = mix(uGround, uShade, smoothstep(0.16, 1.13, b) * 0.70);
+    col += uShade * smoothstep(0.60, 1.60, b) * (0.16 + uMid * 0.62);
+
+    float wave = sin(p.x * 3.1 + uBack.w);
+    float db = p.y - (uPools.x + 0.025 * wave);
+    float dt = p.y - (uPools.z - 0.020 * wave);
+    float rb = uPools.y * uPools.y;
+    float rt = uPools.w * uPools.w;
+    float bottom = rb / (db * db + rb * 0.42);
+    float top = rt / (dt * dt + rt * 0.42);
+    float field = bottom + top;
+    float weight = bottom * bottom + top * top;
+    vec3 wash = uTint * (bottom * bottom) + uGlow * (top * top);
+    for (int i = 0; i < LAVA_BLOBS; i++)
+    {
+        float g = rpmLobe(p, uBlobs[i].xy, uBlobs[i].z, 0.42);
+        field += g;
+        float wg = g * g;
+        weight += wg;
+        wash += mix(uTint, uGlow, uBlobs[i].w) * wg;
+    }
+    wash /= max(weight, 1e-4);
+    col = mix(col, wash, smoothstep(0.70, 1.30, field));
+    col += wash * smoothstep(1.60, 3.40, field) * (0.12 + uBass * 0.44);
+    col += uGlow * smoothstep(2.40, 4.00, field) * uAir * 0.25;
+    return col;
+}
+""",
+    )
+
+    /** RPaMp ([RoomFigures.strands]). Each column is a Gaussian across its swaying centre line, wider
+     * towards the floor and fading out above its top, with a round head; the floor is an exponential
+     * glow. As make_rpamp_ground.py does with its ribbons, they are summed and put through a soft knee
+     * (1 - exp(-1.05 x field)), so two columns that cross make one brighter sheet and never white. The
+     * colour is the columns' own, weighted by their share of the light, over the ground darkened
+     * towards the top. */
+    val RPAMP_FRAGMENT = styleFragment(
+        """
+const int STRANDS = ${RoomFigures.STRANDS};
+uniform vec4 uStrandA[STRANDS];
+uniform vec4 uStrandB[STRANDS];
+uniform vec2 uHeads[STRANDS];
+uniform vec4 uFloor;
+
+vec3 strandColour(float m)
+{
+    return mix(mix(uTint, uGlow, clamp(m, 0.0, 1.0)), uShade, clamp(m - 1.0, 0.0, 1.0));
+}
+
+vec3 styleRoom(vec2 p)
+{
+    // 0 at the top of the screen, 1 at the floor.
+    float down = 0.5 - p.y;
+    float fl = exp(-(p.y + 0.5) / uFloor.x) * uFloor.y * (1.0 + 0.22 * sin(p.x * 4.3 + uFloor.z));
+    float field = fl;
+    vec3 wash = strandColour(0.5 + 0.5 * sin(p.x * 2.2 - uFloor.z * 0.5)) * fl;
+    for (int i = 0; i < STRANDS; i++)
+    {
+        vec4 a = uStrandA[i];
+        vec4 b = uStrandB[i];
+        float x = a.x + b.x * sin(p.y * 7.0 - b.y);
+        float d = (p.x - x) / (a.z * (0.7 + 0.6 * down));
+        float body = exp(-d * d) * smoothstep(a.y + 0.06, a.y - 0.22, p.y);
+        float head = rpmLobe(p, uHeads[i], a.z * 1.26, 1.0);
+        float g = (body + 0.9 * head * head) * a.w;
+        field += g;
+        wash += strandColour(b.z) * g;
+    }
+    wash /= max(field, 1e-4);
+    float lit = 1.0 - exp(-1.05 * field);
+    vec3 dark = uGround * (0.35 + 0.65 * smoothstep(0.55, -0.45, p.y));
+    vec3 col = mix(dark, wash, lit);
+    col += wash * smoothstep(1.40, 3.00, field) * (0.10 + uBass * 0.35);
+    return col;
+}
+""",
+    )
+
     /** The offscreen room scaled to the screen, then the spectrum, then the grain, all at the screen's
      * own resolution: 128 bars across a third of the screen are a few pixels each, which the small room
      * would blur together, and grain drawn small and scaled up would be blur, not dither.

@@ -545,6 +545,12 @@
     <string name="Login_Title">Iniciar sesión</string>
     <string name="Login_Unable">No se pudo iniciar sesión. Inténtalo de nuevo.</string>
     <string name="Login_WaitingBrowser">Esperando el inicio de sesión en el navegador…</string>
+
+    <!-- Title of the page the browser shows after signing in with Apple or Google from rpm on Windows or Linux. The app serves this page itself. -->
+    <string name="Login_BrowserDoneTitle">Sesión iniciada</string>
+
+    <!-- Text under Login_BrowserDoneTitle on the same browser page. -->
+    <string name="Login_BrowserDoneBody">Puedes cerrar esta pestaña y volver a rpm.</string>
     <string name="Lookup_CatalogNumber">N.º de catálogo</string>
     <string name="Lookup_CatalogHint">p. ej. SHVL 804</string>
     <string name="Lookup_Barcode">Código de barras</string>
@@ -5515,6 +5521,9 @@
 
     <!-- Under the QR code in the Android TV sign-in pop-up. -->
     <string name="Tv_SignIn_ScanThis">Escanea el código con la cámara del teléfono e inicia sesión en el teléfono.</string>
+
+    <!-- Under the QR code on the Apple TV and Android TV sign-in screens. {0} is eight letters in two groups, e.g. BCDF-GHJK. The phone's sign-in page shows the same code before it goes on to Apple or Google. -->
+    <string name="Tv_SignIn_Code">Código %1$s. Comprueba que el teléfono muestra el mismo código.</string>
 
     <!-- Shown on the Android TV after signing in. {0} is the account's name or email. -->
     <string name="Tv_SignIn_Done">Has iniciado sesión como %1$s.</string>

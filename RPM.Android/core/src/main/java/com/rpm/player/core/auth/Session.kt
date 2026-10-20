@@ -25,8 +25,20 @@ data class LoginResponse(
     val expiresIn: Int? = null,
 )
 
+/** A social sign-in that was started: the address to open, its session id, and for a TV the code to show (two
+ * groups of four letters), which the phone's sign-in page shows too. */
 @Serializable
-data class SocialStart(val loginUrl: String, val sessionId: String)
+data class SocialStart(val loginUrl: String, val sessionId: String, val userCode: String? = null)
+
+/** How a social sign-in comes back to the app. The accounts service keeps it with the session, so a changed
+ * login address cannot change it. */
+enum class SocialReturn(val wireName: String) {
+    /** The browser comes back to `rpm://auth` with a one-time code: the phone ([AuthWire.collect]). */
+    APP("app"),
+
+    /** The sign-in happens on another device: the TV polls ([AuthWire.poll]) and shows a code. */
+    DEVICE("device"),
+}
 
 @Serializable
 data class SocialPoll(

@@ -31,9 +31,11 @@ class AuthClient(
         current.value = store.read()
     }
 
-    suspend fun startSocial(provider: Provider): SocialStart = wire.startSocial(provider)
+    suspend fun startSocial(provider: Provider, returnTo: SocialReturn): SocialStart = wire.startSocial(provider, returnTo)
 
     suspend fun poll(sessionId: String): SocialPoll = wire.poll(sessionId)
+
+    suspend fun collect(sessionId: String, code: String): SocialPoll = wire.collect(sessionId, code)
 
     /** Signs in with an address and a password. On [LoginAnswer.In] the session is already set. Throws
      * [java.io.IOException] if the accounts service cannot be reached. */

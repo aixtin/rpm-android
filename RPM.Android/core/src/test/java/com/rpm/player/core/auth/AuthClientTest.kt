@@ -26,8 +26,9 @@ class AuthClientTest {
         val answer = CompletableDeferred<RefreshAnswer>()
         val revoked = mutableListOf<String>()
         override suspend fun login(email: String, password: String) = error("not used")
-        override suspend fun startSocial(provider: Provider) = error("not used")
+        override suspend fun startSocial(provider: Provider, returnTo: SocialReturn) = error("not used")
         override suspend fun poll(sessionId: String) = error("not used")
+        override suspend fun collect(sessionId: String, code: String) = error("not used")
         override suspend fun refresh(refreshToken: String): RefreshAnswer {
             refreshes += 1
             return answer.await()

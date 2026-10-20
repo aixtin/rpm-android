@@ -545,6 +545,12 @@
     <string name="Login_Title">登录</string>
     <string name="Login_Unable">无法登录，请重试。</string>
     <string name="Login_WaitingBrowser">正在等待浏览器中完成登录…</string>
+
+    <!-- Title of the page the browser shows after signing in with Apple or Google from rpm on Windows or Linux. The app serves this page itself. -->
+    <string name="Login_BrowserDoneTitle">已登录</string>
+
+    <!-- Text under Login_BrowserDoneTitle on the same browser page. -->
+    <string name="Login_BrowserDoneBody">你可以关闭此标签页并返回 rpm。</string>
     <string name="Lookup_CatalogNumber">目录编号</string>
     <string name="Lookup_CatalogHint">例如 SHVL 804</string>
     <string name="Lookup_Barcode">条形码</string>
@@ -5515,6 +5521,9 @@
 
     <!-- Under the QR code in the Android TV sign-in pop-up. -->
     <string name="Tv_SignIn_ScanThis">用手机相机扫描此代码，然后在手机上登录。</string>
+
+    <!-- Under the QR code on the Apple TV and Android TV sign-in screens. {0} is eight letters in two groups, e.g. BCDF-GHJK. The phone's sign-in page shows the same code before it goes on to Apple or Google. -->
+    <string name="Tv_SignIn_Code">代码 %1$s。请确认手机上显示的是同一个代码。</string>
 
     <!-- Shown on the Android TV after signing in. {0} is the account's name or email. -->
     <string name="Tv_SignIn_Done">你已以 %1$s 的身份登录。</string>

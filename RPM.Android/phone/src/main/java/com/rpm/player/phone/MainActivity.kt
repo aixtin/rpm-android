@@ -1,6 +1,7 @@
 package com.rpm.player.phone
 
 import android.content.ComponentName
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -39,6 +40,21 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         setContent { Root(services, app.settings, app.signIn, controller.value, sittingFrom.intValue) }
+        if (savedInstanceState == null) takeSignInLink(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takeSignInLink(intent)
+    }
+
+    /** The browser's way back after a sign-in with Apple or Google, `rpm://auth?sessionId=…&code=…` (the intent
+     * filter in the manifest). [SignIn.returned] checks that it is for the sign-in that is waiting. */
+    private fun takeSignInLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (intent.action == Intent.ACTION_VIEW && data.scheme == "rpm" && data.host == "auth") {
+            app.signIn.returned(data.toString())
+        }
     }
 
     override fun onStart() {
@@ -75,7 +91,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Back from the browser a sign-in opened, closed or finished: see SignIn.backFromBrowser.
+        // Back from the browser a sign-in opened, closed or finished: see SignIn.backFromBrowser. A finished
+        // sign-in's link arrives in onNewIntent, before this.
         app.signIn.backFromBrowser()
     }
 

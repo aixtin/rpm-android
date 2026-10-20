@@ -47,6 +47,7 @@ import com.rpm.player.core.R
 import com.rpm.player.core.auth.AuthClient
 import com.rpm.player.core.auth.LoginResponse
 import com.rpm.player.core.auth.Provider
+import com.rpm.player.core.auth.SocialReturn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -56,13 +57,14 @@ import kotlinx.coroutines.withContext
  * Sign-in on a TV: one QR code per provider, each a `loginUrl` from `auth/social-login`. The person
  * scans one and signs in on the phone; this side polls `auth/poll-session` until one finishes.
  *
- * The codes are never replaced. The accounts service stores nothing at `social-login` and writes a row
- * only when the sign-in finishes (rpm.Api, SiteController.cs, the five-minute row), so a session id
- * cannot go stale before it is used.
+ * The codes are not replaced while the screen waits. The accounts service keeps a TV's pending sign-in for
+ * 24 hours. Each QR code has a user code under it, which the phone's sign-in page shows too: a person who was
+ * sent someone else's QR code sees that it is not their TV.
  */
 class SignInFlow(private val auth: AuthClient, private val clock: () -> Long) {
 
-    data class Code(val provider: Provider, val url: String, val sessionId: String)
+    /** One provider's sign-in. [userCode] is the code to compare with the phone's sign-in page. */
+    data class Code(val provider: Provider, val url: String, val sessionId: String, val userCode: String?)
 
     sealed interface View {
         data object Starting : View
@@ -100,8 +102,8 @@ class SignInFlow(private val auth: AuthClient, private val clock: () -> Long) {
         while (true) {
             try {
                 return Provider.entries.map { provider ->
-                    val started = auth.startSocial(provider)
-                    Code(provider, started.loginUrl, started.sessionId)
+                    val started = auth.startSocial(provider, SocialReturn.DEVICE)
+                    Code(provider, started.loginUrl, started.sessionId, started.userCode)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -247,6 +249,10 @@ private fun CodePopup(provider: Provider, code: SignInFlow.Code?, backdrop: Back
                 }
                 Spacer(Modifier.height(20.s))
                 Text(stringResource(R.string.Tv_SignIn_ScanThis), style = ui(18.ts), color = Ink.Artist, textAlign = TextAlign.Center)
+                code?.userCode?.let { userCode ->
+                    Spacer(Modifier.height(10.s))
+                    Text(stringResource(R.string.Tv_SignIn_Code, userCode), style = ui(18.ts, FontWeight.SemiBold), color = Ink.Words, textAlign = TextAlign.Center)
+                }
                 // Holds the remote inside the pop-up: nothing in it takes a key but Back.
                 DeskButton(onClick = {}, corner = 7.s, modifier = Modifier.focusRequester(hold).size(1.px)) {}
             }

@@ -545,6 +545,12 @@
     <string name="Login_Title">Sign in</string>
     <string name="Login_Unable">Couldn\'t sign in. Please try again.</string>
     <string name="Login_WaitingBrowser">Waiting for sign-in in your browser…</string>
+
+    <!-- Title of the page the browser shows after signing in with Apple or Google from rpm on Windows or Linux. The app serves this page itself. -->
+    <string name="Login_BrowserDoneTitle">Signed in</string>
+
+    <!-- Text under Login_BrowserDoneTitle on the same browser page. -->
+    <string name="Login_BrowserDoneBody">You can close this tab and go back to rpm.</string>
     <string name="Lookup_CatalogNumber">Catalogue no.</string>
     <string name="Lookup_CatalogHint">e.g. SHVL 804</string>
     <string name="Lookup_Barcode">Barcode</string>
@@ -5515,6 +5521,9 @@
 
     <!-- Under the QR code in the Android TV sign-in pop-up. -->
     <string name="Tv_SignIn_ScanThis">Scan the code with your phone\'s camera and sign in on your phone.</string>
+
+    <!-- Under the QR code on the Apple TV and Android TV sign-in screens. {0} is eight letters in two groups, e.g. BCDF-GHJK. The phone's sign-in page shows the same code before it goes on to Apple or Google. -->
+    <string name="Tv_SignIn_Code">Code %1$s. Check that your phone shows the same code.</string>
 
     <!-- Shown on the Android TV after signing in. {0} is the account's name or email. -->
     <string name="Tv_SignIn_Done">You\'re signed in as %1$s.</string>

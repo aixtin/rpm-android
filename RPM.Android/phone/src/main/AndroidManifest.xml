@@ -24,6 +24,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- The browser's way back after a sign-in with Apple or Google (SignIn.returned). Another app can
+                 register the same address, but the code in it is useless without this app's poll secret. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="rpm" android:host="auth" />
+            </intent-filter>
         </activity>
     </application>
 

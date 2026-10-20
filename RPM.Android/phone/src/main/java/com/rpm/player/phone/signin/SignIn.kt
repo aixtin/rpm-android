@@ -1,6 +1,5 @@
 package com.rpm.player.phone.signin
 
-import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -10,13 +9,21 @@ import com.rpm.player.core.auth.AuthClient
 import com.rpm.player.core.auth.LoginAnswer
 import com.rpm.player.core.auth.Provider
 import com.rpm.player.core.auth.SocialPoll
+import com.rpm.player.core.auth.SocialReturn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
+import java.net.URI
+import java.net.URLDecoder
 
 /** A message for the screen: a string resource, and the values that fill its placeholders. */
 data class Said(@StringRes val id: Int, val args: List<Any> = emptyList())
@@ -29,9 +36,10 @@ data class Said(@StringRes val id: Int, val args: List<Any> = emptyList())
  * poll held by a screen would stop when the system recreates that activity behind the browser. So this object
  * is made once, next to the services, and uses their scope.
  *
- * The browser sign-in has no callback. The accounts service returns a sign-in address and a session id. The
- * website stores the tokens on that session, and the app polls until they arrive. A return to the app is
- * handled separately (see [backFromBrowser]).
+ * The browser sign-in: the accounts service returns a sign-in address and a session id. When the person is done,
+ * the website sends the browser to `rpm://auth?sessionId=…&code=…`, which `MainActivity` hands to [returned]. The
+ * app then collects the tokens with that one-time code and its poll secret, so a sign-in finished in someone
+ * else's browser never reaches this app. A return to the app without the link is handled by [backFromBrowser].
  *
  * @param bringBack puts the app back in front of the browser once the browser's sign-in has finished.
  */
@@ -64,6 +72,9 @@ class SignIn(
      * attempts.
      */
     private var back: MutableStateFlow<Boolean>? = null
+
+    /** The `rpm://auth` address the browser came back with, for this attempt. Null between attempts. */
+    private var link: MutableStateFlow<String?>? = null
 
     /**
      * Whether this attempt's address has been handed to the browser. A return to the app before that, such as
@@ -118,13 +129,14 @@ class SignIn(
         trouble = null
         browserShown = false
         val back = MutableStateFlow(false).also { this.back = it }
+        val link = MutableStateFlow<String?>(null).also { this.link = it }
         scope.launch {
             try {
-                val start = auth.startSocial(provider)
+                val start = auth.startSocial(provider, SocialReturn.APP)
                 toOpen = start.loginUrl
-                val finished = watch(start.sessionId, back)
-                if (finished != null) {
-                    auth.adopt(finished.asLogin())
+                val code = awaitCode(start.sessionId, back, link)
+                if (code != null) {
+                    auth.adopt(collect(start.sessionId, code).asLogin())
                     bringBack()
                 }
             } catch (e: IOException) {
@@ -143,8 +155,15 @@ class SignIn(
                 busy = false
                 browserShown = false
                 if (this@SignIn.back === back) this@SignIn.back = null
+                if (this@SignIn.link === link) this@SignIn.link = null
             }
         }
+    }
+
+    /** The browser came back to the app with [address], an `rpm://auth` link (`MainActivity`). An address that
+     * arrives when no sign-in is waiting is ignored. */
+    fun returned(address: String) {
+        link?.value = address
     }
 
     /** The activity has opened [toOpen] in the browser. */
@@ -155,35 +174,56 @@ class SignIn(
 
     /**
      * The activity came back to the front. While the browser sign-in waits, and its address is already open,
-     * this means the person closed the browser, or the browser finished. The watch then checks once more and
-     * stops. Closing the browser is not a failure, so no message is shown. The iPhone app does the same.
+     * this means the person closed the browser, or the browser finished. The wait then gives the browser's link
+     * [GRACE_MS] to arrive and stops. Closing the browser is not a failure, so no message is shown. The iPhone app
+     * does the same.
      */
     fun backFromBrowser() {
         if (browserShown) back?.value = true
     }
 
     /**
-     * Polls every [EVERY_MS] for up to [DEADLINE_MS]. These are the same values as on iPhone
-     * (`AuthClient.pollSocial`). A return to the app ends the wait early, for one last check, because the
-     * browser may have finished as it closed. Returns null when the person came back without finishing.
+     * Waits up to [DEADLINE_MS] for the browser to come back with the one-time code. Returns null when the person
+     * came back to the app without it (they closed the browser). The link and the return to the app arrive close
+     * together, the link first on a running activity, so a return waits [GRACE_MS] more for the link.
      */
-    private suspend fun watch(sessionId: String, back: MutableStateFlow<Boolean>): SocialPoll? {
-        val deadline = SystemClock.elapsedRealtime() + DEADLINE_MS
-        while (SystemClock.elapsedRealtime() < deadline) {
-            val returned = withTimeoutOrNull(EVERY_MS) { back.first { it } } != null
-            val said = auth.poll(sessionId)
+    private suspend fun awaitCode(sessionId: String, back: MutableStateFlow<Boolean>, link: MutableStateFlow<String?>): String? {
+        val first = withTimeoutOrNull(DEADLINE_MS) {
+            merge(link.filterNotNull(), back.filter { it }.map { null }).first()
+        } ?: if (back.value) null else throw TimedOut()
+        val address = first ?: withTimeoutOrNull(GRACE_MS) { link.filterNotNull().first() } ?: return null
+        return codeIn(address, sessionId) ?: throw Incomplete()
+    }
+
+    /** Collects the tokens with the code. The website writes them before it sends the browser back, so the first
+     * ask normally finds them. Two more asks a second apart cover a slow write. */
+    private suspend fun collect(sessionId: String, code: String): SocialPoll {
+        repeat(3) { attempt ->
+            if (attempt > 0) delay(1_000)
+            val said = auth.collect(sessionId, code)
             if (said.isComplete) return said
             if (said.status == "complete") throw Incomplete()
-            if (returned) return null
         }
-        throw TimedOut()
+        throw Incomplete()
     }
 
     private class Incomplete : Exception()
     private class TimedOut : Exception()
 
-    private companion object {
-        const val EVERY_MS = 2_000L
-        const val DEADLINE_MS = 180_000L
+    companion object {
+        private const val DEADLINE_MS = 180_000L
+        private const val GRACE_MS = 1_500L
+
+        /** The code in an `rpm://auth?sessionId=…&code=…` address, if it is for [sessionId]. */
+        internal fun codeIn(address: String, sessionId: String): String? {
+            val uri = runCatching { URI(address) }.getOrNull() ?: return null
+            if (uri.scheme != "rpm" || uri.host != "auth") return null
+            val query = uri.rawQuery?.split('&').orEmpty().mapNotNull { pair ->
+                val equals = pair.indexOf('=')
+                if (equals <= 0) null else pair.substring(0, equals) to URLDecoder.decode(pair.substring(equals + 1), "UTF-8")
+            }.toMap()
+            if (query["sessionId"] != sessionId) return null
+            return query["code"]?.takeIf { it.isNotEmpty() }
+        }
     }
 }

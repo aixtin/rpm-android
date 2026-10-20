@@ -40,8 +40,14 @@ sealed interface LoginAnswer {
 interface AuthWire {
     /** Throws [IOException] if the service cannot be reached. */
     suspend fun login(email: String, password: String): LoginAnswer
-    suspend fun startSocial(provider: Provider): SocialStart
+    suspend fun startSocial(provider: Provider, returnTo: SocialReturn): SocialStart
+
+    /** A TV's ask for a sign-in it started, with its poll secret. */
     suspend fun poll(sessionId: String): SocialPoll
+
+    /** The phone's ask for a sign-in it started, with its poll secret and the one-time [code] the browser
+     * brought back. */
+    suspend fun collect(sessionId: String, code: String): SocialPoll
     suspend fun refresh(refreshToken: String): RefreshAnswer
     suspend fun revoke(refreshToken: String)
 }
@@ -66,18 +72,27 @@ class HttpAuthWire(private val http: OkHttpClient) : AuthWire {
         }
     }
 
-    override suspend fun startSocial(provider: Provider): SocialStart {
+    override suspend fun startSocial(provider: Provider, returnTo: SocialReturn): SocialStart {
         val secret = PollSecret.make()
-        val fields = mapOf("provider" to provider.wireName, "appId" to APP_ID, "pollHash" to PollSecret.hashOf(secret))
+        val fields = mapOf(
+            "provider" to provider.wireName, "appId" to APP_ID, "pollHash" to PollSecret.hashOf(secret),
+            "returnTo" to returnTo.wireName,
+        )
         return post("auth/social-login", fields).let {
             if (it.code !in 200..299) throw IOException("social-login answered ${it.code}")
             WireJson.decodeFromString(SocialStart.serializer(), it.body)
         }.also { pollSecrets[it.sessionId] = secret }
     }
 
-    override suspend fun poll(sessionId: String): SocialPoll {
+    override suspend fun poll(sessionId: String): SocialPoll = ask(sessionId, code = null)
+
+    override suspend fun collect(sessionId: String, code: String): SocialPoll = ask(sessionId, code)
+
+    /** One ask of `auth/poll-session`. The server answers 403 when the secret or the code does not match. */
+    private suspend fun ask(sessionId: String, code: String?): SocialPoll {
         val request = Request.Builder().url(Hosts.ACCOUNTS + "auth/poll-session?sessionId=" + escapeSegment(sessionId))
             .apply { pollSecrets[sessionId]?.let { header(PollSecret.HEADER, it) } }
+            .apply { code?.let { header(PollSecret.CODE_HEADER, it) } }
             .build()
         http.newCall(request).await().use { response ->
             val body = response.body.string()

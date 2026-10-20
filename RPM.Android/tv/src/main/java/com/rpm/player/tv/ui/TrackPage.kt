@@ -274,17 +274,21 @@ fun TrackPage(page: PageOf, collection: Collection, images: ImageLoader, dossier
                         is PageOf.OfAlbum -> albumTitle(page.album)
                         is PageOf.OfList -> listName(page.list.name)
                     }
-                    PageKey(
-                        onClick = {
-                            menu.open(
-                                title = pageMenuTitle,
-                                choices = pageChoices(page, queue, collection, marks.isFavouriteOf(album), stars, actions),
-                                returnTo = menuKey,
-                            )
-                        },
-                        modifier = Modifier.then(intoTracks).focusRequester(menuKey).width(64.s).fillMaxSize(),
-                    ) {
-                        Glyph(Fa.BARS, 17.ts, Ink.Words)
+                    // No glow: the key is small enough for [deskFocus]'s icon-key orb, which stood out hard beside the
+                    // play key. It shows the focus as the play key does, by its grow and its full brightness.
+                    androidx.compose.runtime.CompositionLocalProvider(LocalGlowStrength provides 0f) {
+                        PageKey(
+                            onClick = {
+                                menu.open(
+                                    title = pageMenuTitle,
+                                    choices = pageChoices(page, queue, collection, marks.isFavouriteOf(album), stars, actions),
+                                    returnTo = menuKey,
+                                )
+                            },
+                            modifier = Modifier.then(intoTracks).focusRequester(menuKey).width(64.s).fillMaxSize(),
+                        ) {
+                            Glyph(Fa.BARS, 17.ts, Ink.Words)
+                        }
                     }
                 }
                 if (page is PageOf.OfAlbum) {

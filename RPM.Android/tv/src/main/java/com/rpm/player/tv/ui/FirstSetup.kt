@@ -150,7 +150,7 @@ fun FirstSetup(
             }
             2 -> SetupPage(stringResource(R.string.Tv_Setup_ViewTitle), stringResource(R.string.Tv_Setup_ViewHint)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(24.s)) {
-                    for (view in listOf(PegasusView.Spread, PegasusView.Centred, PegasusView.Room)) {
+                    for (view in listOf(PegasusView.Spread, PegasusView.Centred)) {
                         ChoiceCard(
                             label = stringResource(view.label),
                             selected = settings.defaultView == view,
@@ -467,7 +467,7 @@ private val SKETCH_DIM = Color(0x4DFFFFFF)
 private val SKETCH_COVER = Brush.linearGradient(listOf(Color(0xFFE0457B), Color(0xFF6A3DE8)))
 
 /** A sketch of a player layout: Full has the record at the left, its lines beside it and the spectrum under them;
- * Compact the record centred with its lines under it; Visuals only the room's colours and the spectrum. */
+ * Compact the record centred with its lines under it. */
 @Composable
 private fun LayoutSketch(view: PegasusView) {
     Canvas(Modifier.fillMaxSize()) {
@@ -498,12 +498,6 @@ private fun LayoutSketch(view: PegasusView) {
                 drawRoundRect(SKETCH_COVER, Offset((w - side) / 2, h * 0.1f), Size(side, side), CornerRadius(6f))
                 drawRoundRect(SKETCH_LINE, Offset(w * 0.32f, h * 0.68f), Size(w * 0.36f, h * 0.06f), CornerRadius(4f))
                 drawRoundRect(SKETCH_DIM, Offset(w * 0.38f, h * 0.79f), Size(w * 0.24f, h * 0.045f), CornerRadius(4f))
-            }
-            PegasusView.Room -> {
-                drawCircle(Color(0x99E0457B), radius = h * 0.42f, center = Offset(w * 0.3f, h * 0.38f))
-                drawCircle(Color(0x806A3DE8), radius = h * 0.5f, center = Offset(w * 0.68f, h * 0.45f))
-                drawCircle(Color(0x6633C3FF), radius = h * 0.3f, center = Offset(w * 0.5f, h * 0.2f))
-                bars(h * 0.45f, h * 0.92f, w * 0.06f, w * 0.94f)
             }
         }
     }

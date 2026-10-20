@@ -92,9 +92,8 @@ import kotlinx.coroutines.withContext
  *   it closes, and the controls stay up while it is open.
  *
  * The view is the one in the settings ([PlayerSettings.defaultView]). The layout key in the row steps through
- * the three layouts (Full, Compact, Visuals only) and keeps the choice, and the new layout's name shows at the
- * top for a moment. The bare room has its keys at its foot, as the lyrics have, so the way back out of it is on
- * screen too. A station has no seek bar and only the play key.
+ * the two layouts (Full, Compact) and keeps the choice, and the new layout's name shows at the top for a moment.
+ * A station has no seek bar and only the play key.
  *
  * The lyric key's choice is a setting ([PlayerSettings.lyricsOn]), so the lyrics are still on after Back and a
  * return. Between tracks the layout holds still: it follows the last sheet that was read, not the empty one of a
@@ -161,7 +160,7 @@ fun PlayerScreen(
     var sheet by remember { mutableStateOf(LyricSheet.EMPTY) }
     // Whether the last sheet read had synced lyrics, which is what the layout follows. Unlike [sheet] it is not
     // cleared as the track changes. It was, through [sheet], and every change of track slid the lyrics away (the
-    // compact view's record glided back to the middle, the other views swapped to the room) and slid them back half
+    // compact view's record glided back to the middle, the full view swapped back to the record) and slid them back half
     // a second later when the lookup came back. Now the layout holds while the next sheet is read, the lyric side
     // showing only the dots, and moves once that sheet is known and only if it has no synced lyrics. On opening, the
     // player assumes the lyrics are there if they are wanted, so a return to the player does not slide them in.
@@ -416,14 +415,13 @@ fun PlayerScreen(
 
         Box(Modifier.fillMaxSize().then(if (queueOpen || drawerLeaving) Modifier.backdropSource(drawerPicture) else Modifier).graphicsLayer { translationX = push * size.width }) {
             when {
-                // The compact view keeps its record and puts the lyrics beside it. The other views give the lyrics the screen.
+                // The compact view keeps its record and puts the lyrics beside it. The full view gives the lyrics the screen.
                 view == PegasusView.Centred -> PegasusCentred(
                     nowPlaying, images, vinyl, frame, keysAlpha, seek, row,
                     lyrics = if (lyricsShown) ({ LyricColumn(sheet, nowPlaying, karaoke, measured, Modifier.fillMaxSize()) }) else null,
                 )
                 lyricsShown -> LyricsView(sheet, nowPlaying, karaoke, measured, keysAlpha, seek, row)
-                view == PegasusView.Spread -> PegasusSpread(nowPlaying, images, vinyl, frame, keysAlpha, seek, row)
-                else -> RoomKeys(keysAlpha, seek, row)
+                else -> PegasusSpread(nowPlaying, images, vinyl, frame, keysAlpha, seek, row, drawerOpen = queueOpen)
             }
         }
 
@@ -486,29 +484,7 @@ val PegasusView.label: Int
     get() = when (this) {
         PegasusView.Spread -> R.string.Viz_LayoutFull
         PegasusView.Centred -> R.string.Viz_LayoutCompact
-        PegasusView.Room -> R.string.Viz_LayoutVisuals
     }
-
-/**
- * The bare room's keys: the seek bar ([seek]) and the row of keys at the foot, as wide as the lyric column and
- * `max(32, 0.045 h)` from the bottom, as in [LyricsView]. They fade with the rest of the controls.
- */
-@Composable
-private fun RoomKeys(keysAlpha: () -> Float, seek: @Composable () -> Unit, row: @Composable (Dp) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val column = minOf(maxWidth * 0.78f, 1400.px)
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = max(32.px, maxHeight * 0.045f))
-                .width(column)
-                .graphicsLayer { alpha = keysAlpha() },
-        ) {
-            seek()
-            Box(Modifier.padding(top = 14.s)) { row(column) }
-        }
-    }
-}
 
 /** The queue drawer's share of the screen's width. Its slide time ([DRAWER_GLIDE_MS]) is about the same as the
  * desktop's drawer takes. */

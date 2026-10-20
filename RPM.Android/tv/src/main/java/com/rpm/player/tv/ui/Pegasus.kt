@@ -79,8 +79,9 @@ import com.rpm.player.core.radio.StationLogo
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.first
 
-/** The player's views, in the order the view key steps through them (PegasusLayout.cs). */
-enum class PegasusView { Spread, Centred, Room }
+/** The player's views, in the order the view key steps through them (PegasusLayout.cs). The desktop's third, the
+ * bare room, is not offered: the screensaver shows the room without the player now, so a view of it is not needed. */
+enum class PegasusView { Spread, Centred }
 
 /**
  * The sleeve's side for a screen: 0.38 of the height, at least 140 desktop pixels, at most 0.34 of the
@@ -97,6 +98,13 @@ fun sleeveSide(width: Dp, height: Dp): Dp = (height * 0.38f).coerceIn(140.px, ma
  * Figures are PegasusChrome.xaml.cs's: the column starts 0.075 of the width in and is
  * `min(0.30 w, (w - side) / 2 - left - 0.12 side)` wide; the lines are centred on the middle of the
  * screen and the seek bar and keys hang under them, so the words never move when the keys hide.
+ *
+ * While the queue drawer is open ([drawerOpen]) the lines, the seek bar and the keys are put away: the drawer
+ * pushes the picture right, and the words would stand half under the drawer's glass. They fade out over the
+ * drawer's slide ([DRAWER_GLIDE_MS]) and come back once it closes over [BESIDE_MS] on the same curve as the lyrics
+ * fading in beside the record, so the left side returns slowly rather than in one frame. The shade stays. The
+ * fade is read when drawing, and the keys cannot take the focus while the drawer is open anyway, so the queue key
+ * takes it back at once on a close even while it is still faint.
  */
 @Composable
 fun PegasusSpread(
@@ -107,7 +115,13 @@ fun PegasusSpread(
     keysAlpha: () -> Float,
     seek: @Composable () -> Unit,
     keys: @Composable (column: Dp) -> Unit,
+    drawerOpen: Boolean,
 ) {
+    val wordsShown = animateFloatAsState(
+        if (drawerOpen) 0f else 1f,
+        if (drawerOpen) tween(DRAWER_GLIDE_MS) else tween(BESIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "words",
+    )
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val w = maxWidth
         val h = maxHeight
@@ -136,7 +150,7 @@ fun PegasusSpread(
             seek = seek,
             keys = keys,
             gap = 24.s + max(20.px, side * 0.08f),
-            modifier = Modifier.offset(x = left).width(column).fillMaxHeight(),
+            modifier = Modifier.offset(x = left).width(column).fillMaxHeight().graphicsLayer { alpha = wordsShown.value },
             centreLines = true,
         )
     }
@@ -209,7 +223,7 @@ fun PegasusCentred(
 private const val BESIDE_CENTRE = 0.27f
 private const val BESIDE_LYRICS = 0.52f
 private const val BESIDE_SAFE = 0.05f
-private const val BESIDE_MS = 450
+internal const val BESIDE_MS = 450
 
 /** A track's record, or a station's logo in the sleeve with no record. */
 @Composable

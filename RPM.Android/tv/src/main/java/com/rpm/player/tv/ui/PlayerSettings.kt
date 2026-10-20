@@ -220,8 +220,14 @@ class PlayerSettings(context: Context) {
         prefs.edit().putBoolean(KEY_SETUP, false).apply()
     }
 
+    /** A box that kept the bare room's view ("Room", the third layout until the screensaver made it redundant) opens
+     * on the full view, the nearest to it: the room is still drawn behind the record. Nothing stored, or a name this
+     * build does not know, opens on the default. */
     private fun read(): PegasusView =
-        prefs.getString(KEY_VIEW, null)?.let { name -> PegasusView.entries.firstOrNull { it.name == name } } ?: PegasusView.Centred
+        when (val name = prefs.getString(KEY_VIEW, null)) {
+            "Room" -> PegasusView.Spread
+            else -> PegasusView.entries.firstOrNull { it.name == name } ?: PegasusView.Centred
+        }
 
     companion object {
         /** The screensaver's choices in minutes, in the order OK steps through them; 0 is off. */

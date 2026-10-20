@@ -44,6 +44,9 @@ fun CardButton(
     val share = LocalDrawnAt.current
     val shown = LocalFocusVisibility.current.shown
     val me = remember { Any() }
+    // The card a row's menu was opened on is drawn by the menu, over its blur ([liftedUnderMenu]).
+    val quiet = spot?.quiet == true
+    val opener = remember(quiet) { quiet && focused }
     // Where the grown card stands, told from the box that grows. Watched only on the focused card while the focus is
     // drawn, so the cards that are only scrolled past cost nothing for it.
     val telling = if (focused && shown && spot != null) {
@@ -83,6 +86,7 @@ fun CardButton(
                     scaleX = look.grow
                     scaleY = look.grow
                 }
+                .liftedUnderMenu(spot, opener)
                 .cachedLayer(cached = !focused, light = { look.light }),
             contentAlignment = contentAlignment,
         ) { content(focused) }

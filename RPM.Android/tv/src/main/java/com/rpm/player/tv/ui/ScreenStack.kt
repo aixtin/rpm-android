@@ -185,4 +185,4 @@ private fun Modifier.unplacedScreen(): Modifier = layout { measurable, constrain
  * screen fades, with nothing crossfading out under it, because the Amiko's GPU cannot keep up with two whole
  * screens drawn at once. It was 180 ms, which read as a flash rather than a fade; half as long again reads as
  * smooth. */
-private const val SCREEN_FADE_MS = 270
+internal const val SCREEN_FADE_MS = 270

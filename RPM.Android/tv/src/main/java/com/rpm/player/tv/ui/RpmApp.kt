@@ -1,5 +1,6 @@
 package com.rpm.player.tv.ui
 
+import androidx.compose.animation.core.Animatable
 import com.rpm.player.core.playback.TrackRef
 import com.rpm.player.core.playback.NowPlaying
 import com.rpm.player.core.playback.rememberNowPlaying
@@ -334,6 +335,13 @@ fun RpmApp(
                 },
         ) {
             val collectionUp = !playerShown || nowPlaying == null
+            // The swap between the player and the screens, as one fade: 1 with the screens up, 0 with the player. The
+            // screens' backdrop (the picture and its shade) comes and goes with it, over the screen's own fade, and the
+            // player fades the other way over the same time, so neither pops in or out over the other. The room's
+            // surface behind both stays until the swap has ended (see the hand-over below).
+            val homeIn = remember { Animatable(if (collectionUp) 1f else 0f) }
+            // Where the swap stands: 1 the screens, 0 the player, -1 on its way.
+            val homeAt by remember { derivedStateOf { when { homeIn.value >= 1f -> 1; homeIn.value <= 0f -> 0; else -> -1 } } }
             // A still room under a collection screen is a picture inside the window, with the screens' shade
             // laid in, not the surface behind it: one layer for the display rather than two the GPU blends
             // on every frame. The player keeps
@@ -345,11 +353,19 @@ fun RpmApp(
             var surfaceOn by remember { mutableStateOf(!pictured) }
             var pictureOn by remember { mutableStateOf(pictured) }
             var surfaceDrawn by remember { mutableStateOf(false) }
+            // Opening the player waits for the room's surface to have drawn: the screens and their picture stay whole
+            // over it until then, rather than fading to the window's own grey and black with nothing behind them.
+            LaunchedEffect(collectionUp, surfaceDrawn) {
+                if (!collectionUp && !surfaceDrawn) return@LaunchedEffect
+                val to = if (collectionUp) 1f else 0f
+                if (motion >= Motion.Still) homeIn.snapTo(to) else homeIn.animateTo(to, tween(SCREEN_FADE_MS, easing = QuadInOut))
+            }
             var pictureShown by remember { mutableStateOf(false) }
-            LaunchedEffect(pictured, pictureShown, surfaceDrawn) {
+            LaunchedEffect(pictured, pictureShown, surfaceDrawn, homeAt) {
                 if (pictured) {
                     pictureOn = true
-                    if (pictureShown && surfaceOn) {
+                    // Not while the picture is still fading in over it from the player.
+                    if (pictureShown && surfaceOn && homeAt == 1) {
                         // Two frames for the picture to reach the display before the surface under it goes.
                         withFrameNanos { }
                         withFrameNanos { }
@@ -358,7 +374,8 @@ fun RpmApp(
                     }
                 } else {
                     surfaceOn = true
-                    if (surfaceDrawn && pictureOn) {
+                    // Not while the picture is still fading out over the opening player.
+                    if (surfaceDrawn && pictureOn && homeAt != -1) {
                         withFrameNanos { }
                         withFrameNanos { }
                         pictureOn = false
@@ -369,7 +386,7 @@ fun RpmApp(
             // The player draws the spectrum and the grain on the room's surface, which need the screen's
             // pixels; under a collection screen the surface is the room's own size, stretched.
             if (surfaceOn) RoomView(services.audioTap, room, sharp = !collectionUp, onDrawn = { surfaceDrawn = true }, Modifier.fillMaxSize())
-            val covers = pictureOn && pictureShown
+            val covers = pictureOn && pictureShown && homeAt == 1
             DisposableEffect(covers) {
                 onRoomCovers(covers)
                 onDispose { onRoomCovers(false) }
@@ -386,9 +403,9 @@ fun RpmApp(
                 // A change of backdrop shows the new one in the old one's place; the surface is not brought back for it.
                 val dim = (1f - Ink.Scrim.alpha) * settings.picture.light
                 if (standing[0] == PageBackground.Room) {
-                    RoomPicture(services.roomStills, reading?.room ?: RoomPalette.FALLBACK, settings.roomStyle, dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize())
+                    RoomPicture(services.roomStills, reading?.room ?: RoomPalette.FALLBACK, settings.roomStyle, dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize().swapFade { homeIn.value })
                 } else {
-                    BackdropPicture(standing[0], dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize())
+                    BackdropPicture(standing[0], dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize().swapFade { homeIn.value })
                 }
             }
             // The room stretched from an eighth of the screen, and the dimmed page pictures, dithered so their steps do
@@ -405,7 +422,7 @@ fun RpmApp(
                     Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
                         // Every collection screen sits on the room under a flat shade (PegasusChrome.xaml:681), which
                         // the room's picture already has in it.
-                        if (collectionUp && !(pictureOn && pictureShown)) Box(Modifier.fillMaxSize().background(Ink.Scrim))
+                        if (collectionUp && !(pictureOn && pictureShown)) Box(Modifier.fillMaxSize().swapFade { homeIn.value }.background(Ink.Scrim))
                         // What a row's menu blurs and covers, wherever on the screens it opens.
                         val menuGlass = remember(backdrop, mini) { MenuGlass(backdrop, mini) }
                         CompositionLocalProvider(LocalMenuGlass provides menuGlass) {
@@ -433,11 +450,13 @@ fun RpmApp(
                                 // The screens stay composed under the player, so closing it shows the screen as it was
                                 // left (ScreenStack). The player is composed after them, so its Back handlers are the
                                 // later ones and take Back first.
-                                run {
+                                Box(Modifier.fillMaxSize().swapFade { homeIn.value }) {
                                     Screens(
                                         services = services,
                                         stack = stack,
-                                        shown = collectionUp,
+                                        // Up until the player has wholly come over them, so they fade out under it
+                                        // rather than going at once.
+                                        shown = collectionUp || homeAt != 0,
                                         controller = controller,
                                         nowPlaying = nowPlaying,
                                         mini = mini,
@@ -460,7 +479,9 @@ fun RpmApp(
                                         },
                                     )
                                 }
-                                if (!collectionUp) {
+                                // Kept until the screens are wholly up, not only while the fade runs: on the frame the
+                                // player is closed, the fade has not started yet.
+                                if (!collectionUp || homeAt != 1) Box(Modifier.fillMaxSize().swapFade { 1f - homeIn.value }) {
                                     PlayerScreen(
                                         controller = controller,
                                         nowPlaying = nowPlaying,
@@ -481,13 +502,13 @@ fun RpmApp(
                                         favourite = (libraryState as? LibraryState.Ready)
                                             ?.takeIf { shelfOnScreen == Shelf.Own }
                                             ?.let { ready ->
-                                                TrackRef.parse(nowPlaying.mediaId)
+                                                TrackRef.parse(nowPlaying?.mediaId.orEmpty())
                                                     ?.takeIf { it.shelf == Shelf.Own }
                                                     ?.let { ref -> ready.collection.tracksById[ref.rpmId]?.tags?.favorite == true }
                                             },
                                         onFavourite = { favorite ->
-                                            val ref = TrackRef.parse(nowPlaying.mediaId)
-                                            val title = nowPlaying.title
+                                            val ref = TrackRef.parse(nowPlaying?.mediaId.orEmpty())
+                                            val title = nowPlaying?.title.orEmpty()
                                             if (ref != null) services.scope.launch {
                                                 val saved = services.ownWriter.mark(ref.rpmId, favorite)
                                                 noticeText = when {
@@ -1027,3 +1048,11 @@ private const val SIDE_HOLD_MS = 2_000L
 /** How long the screens take to fade out for the screensaver, and to come back on a key. */
 private const val SCREENSAVER_OUT_MS = 1_500
 private const val SCREENSAVER_IN_MS = 400
+
+/** Fades what it is put on by [alpha], read when it is drawn, so the swap between the player and the screens does not
+ * compose them again on every frame of it. The alpha is applied to each draw, with no layer of its own: a whole screen
+ * through an offscreen layer is more than the Amiko's GPU draws in a frame. */
+private fun Modifier.swapFade(alpha: () -> Float): Modifier = graphicsLayer {
+    this.alpha = alpha()
+    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+}

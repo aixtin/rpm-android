@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -23,10 +24,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -58,6 +62,15 @@ class FocusSpot {
 
     /** Whether a row's menu is open over this layer. Read it in composition or in a draw. */
     val quiet: Boolean get() = menus > 0
+
+    /**
+     * The item a row's menu is open on, drawn into this layer of its own instead of in place ([liftedUnderMenu]).
+     * The menu draws it over its blur at the item's bare bounds ([Spot.bare]), so only the item's own art and words
+     * stand on the blurred screen. It used to be kept sharp through a hole cut in the blur, which showed the sharp
+     * page behind the item too: a dark box round it, as if the row sat on a card. Null while no menu is open, and
+     * once the item has left the screen.
+     */
+    internal var lifted by mutableStateOf<GraphicsLayer?>(null)
 
     internal fun menuOpened() {
         menus += 1
@@ -176,6 +189,7 @@ fun Modifier.deskFocus(corner: Dp): Modifier = composed {
             scaleX = g
             scaleY = g
         }
+        .liftedUnderMenu(spot, opener)
         // Outside the kept layer, so the dim never reaches it.
         .drawBehind {
             val g = if (spot?.quiet == true) 0f else glow
@@ -196,6 +210,27 @@ fun Modifier.deskFocus(corner: Dp): Modifier = composed {
             )
         }
         .cachedLayer(cached = !focused, light = { light })
+}
+
+/**
+ * While [opener] (the item a row's menu was opened on, [FocusSpot.quiet]), draws what follows it into
+ * [FocusSpot.lifted] instead of in place, for the menu to draw over its blur. Not drawn in place, the item is also
+ * left out of the picture the menu blurs, so no blurred ghost of it stands round the sharp one. The layer is made
+ * only for the opener, so the other rows cost nothing for it.
+ */
+@Composable
+internal fun Modifier.liftedUnderMenu(spot: FocusSpot?, opener: Boolean): Modifier {
+    if (spot == null || !opener) return this
+    val layer = rememberGraphicsLayer()
+    DisposableEffect(spot, layer) {
+        spot.lifted = layer
+        onDispose { if (spot.lifted === layer) spot.lifted = null }
+    }
+    // Read in the draw: the menu's close ends [FocusSpot.quiet] in the frame its fade starts, and the item is drawn in
+    // place again from that frame, before this modifier leaves on the next composition.
+    return drawWithContent {
+        if (spot.quiet) layer.record { this@drawWithContent.drawContent() } else drawContent()
+    }
 }
 
 /** A focusable box that draws nothing of its own: the desktop's bare button, marked for the remote by

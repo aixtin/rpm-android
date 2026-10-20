@@ -291,8 +291,6 @@ vec3 styleRoom(vec2 p)
         """
 const int RIBBONS = ${RoomFigures.RIBBONS};
 const float LIFT = 1.5;
-// How much softer each ribbon's edge is than the background picture's: its falloff 40% wider, crest line with it.
-const float SOFT = 1.4;
 uniform vec4 uRibbonA[RIBBONS];
 uniform vec4 uRibbonB[RIBBONS];
 uniform vec4 uRibbonC[RIBBONS];
@@ -314,7 +312,7 @@ vec3 styleRoom(vec2 p)
         vec4 b = uRibbonB[i];
         vec4 c = uRibbonC[i];
         float curve = a.x + a.y * u + a.z * sin(a.w * u + b.x) + 0.35 * a.z * sin(a.w * 2.3 * u + b.y);
-        float w = max(b.z * (1.0 + b.w * sin(2.8274 * u + c.x)), 0.04) * SOFT;
+        float w = max(b.z * (1.0 + b.w * sin(2.8274 * u + c.x)), 0.04);
         float d = (v - curve) / w;
         float d2 = d * d;
         float g = (exp(-d2) + c.z * exp(-25.0 * d2)) * c.y;
@@ -326,12 +324,14 @@ vec3 styleRoom(vec2 p)
     float n = max((field - 0.046) / 2.13, 0.0);
     float lv = pow((1.0 - exp(-1.05 * n)) / 0.661, 2.35);
     if (lv > 0.9) lv = 0.9 + 0.1 * (1.0 - exp(-(lv - 0.9) / 0.1));
+    // The script's colour ramp, as overlapping steps: each one starts before the last has ended, so the layers of
+    // light melt into one another instead of meeting at a line.
     vec3 col = uGround * 0.75;
-    col = mix(col, uGround * 0.9 + wash * 0.12, smoothstep(0.10, 0.45, lv));
-    col = mix(col, wash * 0.39, smoothstep(0.45, 0.66, lv));
-    col = mix(col, wash * 0.66, smoothstep(0.66, 0.84, lv));
-    col = mix(col, wash * 0.95, smoothstep(0.84, 0.96, lv));
-    col = mix(col, uGlow * 0.90, smoothstep(0.96, 1.08, lv));
+    col = mix(col, uGround * 0.9 + wash * 0.12, smoothstep(0.02, 0.55, lv));
+    col = mix(col, wash * 0.39, smoothstep(0.30, 0.78, lv));
+    col = mix(col, wash * 0.66, smoothstep(0.52, 0.94, lv));
+    col = mix(col, wash * 0.95, smoothstep(0.70, 1.02, lv));
+    col = mix(col, uGlow * 0.90, smoothstep(0.88, 1.16, lv));
     return col * LIFT;
 }
 """,

@@ -524,7 +524,6 @@ private fun settingLines(page: SettingsPage, settings: PlayerSettings, account: 
                     when (settings.defaultView) {
                         PegasusView.Spread -> R.string.Viz_LayoutFull
                         PegasusView.Centred -> R.string.Viz_LayoutCompact
-                        PegasusView.Room -> R.string.Viz_LayoutVisuals
                     },
                 ),
                 settings::nextDefaultView,

@@ -62,6 +62,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Path
@@ -255,8 +257,8 @@ class MenuGlass(val backdrop: Backdrop, val mini: MiniPlayerState)
 val LocalMenuGlass = staticCompositionLocalOf<MenuGlass?> { null }
 
 /**
- * A row's menu, drawn as the album search is: the screen is blurred under `#33000000` except for the row that
- * the menu was opened on, which stays sharp. Under the row there is a card of the light glass, dimmed, with its
+ * A row's menu, drawn as the album search is: the screen is blurred under `#33000000`, and the row that the menu was
+ * opened on is drawn sharp over the blur, only its own art and words with no box round it ([LiftedItem]). Under the row there is a card of the light glass, dimmed, with its
  * entries at the track list's size ([PAGE_TEXT]). The mini player is covered while the menu is up. Back closes
  * the menu, or returns from a submenu. An entry closes the menu and then does its work.
  *
@@ -338,7 +340,27 @@ private fun MenuOpening(state: RowMenuState, opened: RowMenuState.Opened, openin
             fade.animateTo(1f, tween(MENU_FADE_MS))
         }
     }
-    val blurred = taken ?: return
+    val blurred = taken
+    if (blurred != null) MenuLayer(state, opened, anchor, picture, blurred, owner?.lifted != null, opening, leaving, fade)
+    // The item the menu is about, over the blur and its shade, at full brightness and not faded with them: it stays as
+    // it was while the blur fades in round it. Not once the menu is leaving, when the item is drawn in place again.
+    if (!leaving) LiftedItem(owner, anchor)
+}
+
+/** The opened menu's blur, shade and card, faded by [fade] ([MenuOpening]). With [lifted], the item is drawn by
+ * [LiftedItem] over the blur, which then covers the whole screen; otherwise the blur leaves a hole at the item. */
+@Composable
+private fun MenuLayer(
+    state: RowMenuState,
+    opened: RowMenuState.Opened,
+    anchor: Spot?,
+    picture: Backdrop?,
+    blurred: Boolean,
+    lifted: Boolean,
+    opening: Int,
+    leaving: Boolean,
+    fade: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
+) {
     val shownAt = remember(opening) { SystemClock.uptimeMillis() }
     var origin by remember { mutableStateOf(Offset.Zero) }
     // In the screens' own pixels, as the focus spot's target is ([DrawnAt]).
@@ -351,7 +373,7 @@ private fun MenuOpening(state: RowMenuState, opened: RowMenuState.Opened, openin
             .onPreviewKeyEvent { it.nativeKeyEvent.downTime < shownAt },
     ) {
         val hole = anchor?.rect?.translate(-origin.x, -origin.y)
-        val bare = anchor?.let { RoundRect(it.bare.translate(-origin.x, -origin.y), CornerRadius(it.bareCorner)) }
+        val bare = anchor?.takeUnless { lifted }?.let { RoundRect(it.bare.translate(-origin.x, -origin.y), CornerRadius(it.bareCorner)) }
         MenuShade(picture?.takeIf { blurred }, bare, Modifier.fillMaxSize())
         key(opened) {
             val naming = opened.naming
@@ -368,9 +390,27 @@ private fun MenuOpening(state: RowMenuState, opened: RowMenuState.Opened, openin
     }
 }
 
+/**
+ * The item a row's menu is about ([FocusSpot.lifted]), drawn at its bare bounds over the menu's blur: only its own
+ * art and words, with the blurred screen right up to them. Nothing while no item is lifted.
+ */
+@Composable
+private fun LiftedItem(owner: FocusSpot?, anchor: Spot?) {
+    val bare = anchor?.bare ?: return
+    if (owner == null) return
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    val share = LocalDrawnAt.current
+    Canvas(Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInScreens(share) }) {
+        val layer = owner.lifted ?: return@Canvas
+        if (layer.isReleased) return@Canvas
+        translate(bare.left - origin.x, bare.top - origin.y) { drawLayer(layer) }
+    }
+}
+
 /** The screen behind the menu: its blurred picture and `#33000000`, or the shade alone. The blur covers everything
  * except [hole], the row's own bounds and corners, where the screen itself shows through: the row drawn bare
- * ([FocusSpot.quiet]). The shade covers the hole too, so no lighter box is left round the row. */
+ * ([FocusSpot.quiet]). The shade covers the hole too, so no lighter box is left round the row. The hole is only for
+ * an opener that is not lifted out ([FocusSpot.lifted]); a lifted one is drawn over the whole blur. */
 @Composable
 private fun MenuShade(picture: Backdrop?, hole: RoundRect?, modifier: Modifier) {
     val image = picture?.blurred
@@ -881,9 +921,9 @@ private const val MENU_FADE_MS = 160
 /** The menu and its shade fade out together over this time. The side menu closes in the same time. */
 private const val MENU_OUT_MS = 110
 
-/** How many frames a menu waits before it takes its picture of the screen: one for the row under it to be drawn
- * bare, one for that drawing to be done. */
-private const val BARE_FRAMES = 2
+/** How many frames a menu waits before it takes its picture of the screen: one for the layer under it to hear of the
+ * menu, one for the row to be drawn bare and lifted out of it ([liftedUnderMenu]), one for that drawing to be done. */
+private const val BARE_FRAMES = 3
 
 /** How many frames a new card requests the focus, until it holds it. */
 private const val FOCUS_ASKS = 4

@@ -15,6 +15,18 @@ android {
     defaultConfig {
         // The TV's lowest supported API level. An app built on this module cannot go lower.
         minSdk = 28
+
+        // The key the apps send to the rpm API (AppKey in core/net/Net.kt). The source holds none: a
+        // release build gets the official key from the release, and a contributor sets their own developer
+        // key from rpmrpmrpm.com/developer as rpm.appKey in ~/.gradle/gradle.properties (outside the repo),
+        // or as RPM_APP_KEY in the environment. Without a key, pages that need the API stay empty.
+        val appKey = providers.gradleProperty("rpm.appKey")
+            .orElse(providers.environmentVariable("RPM_APP_KEY"))
+            .getOrElse("")
+        require(appKey.all { it.isLetterOrDigit() || it == '_' || it == '-' }) {
+            "rpm.appKey may hold only letters, digits, '_' and '-'."
+        }
+        buildConfigField("String", "RPM_APP_KEY", "\"$appKey\"")
     }
 
     compileOptions {
@@ -24,7 +36,7 @@ android {
 
     buildFeatures {
         compose = true
-        buildConfig = false
+        buildConfig = true
     }
 
     testOptions {

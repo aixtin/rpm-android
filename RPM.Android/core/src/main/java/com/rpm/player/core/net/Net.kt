@@ -1,5 +1,6 @@
 package com.rpm.player.core.net
 
+import com.rpm.player.core.BuildConfig
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import okhttp3.Call
@@ -13,13 +14,16 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * The key this app sends to the RPM API. It ships inside every client and can be read back out of
- * one, so it filters casual traffic and does not protect anything. It has the same value as `AppKey`
- * in the iOS app and `RpmApi` in RPM.Core. The server accepts the current and the previous key.
+ * The key this app sends to the RPM API. The source holds none: it comes from the build (`rpm.appKey` or
+ * `RPM_APP_KEY`, see core/build.gradle.kts). A release build carries the official key, and a contributor's
+ * build their own developer key from rpmrpmrpm.com/developer. The key ships inside the app and can be read
+ * back out of it, so it filters casual traffic and says whose build is asking; it does not protect anything.
+ * The same key is `AppKey` in the iOS app and `RpmApi` in RPM.Core. The server accepts the current and the
+ * previous official key.
  */
 object AppKey {
     const val HEADER = "X-RPM-Key"
-    const val VALUE = "rpm_live_FEvcaWAmKYVQIOi8EbDUD98kgpkpbT9r"
+    const val VALUE: String = BuildConfig.RPM_APP_KEY
 }
 
 object Hosts {

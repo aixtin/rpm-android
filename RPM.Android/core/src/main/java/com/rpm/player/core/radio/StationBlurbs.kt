@@ -20,6 +20,14 @@ class StationBlurbs(private val http: OkHttpClient) {
     private val lock = Mutex()
     private val known = HashMap<String, CompletableDeferred<String?>>()
 
+    /** The lines found so far, by the same key as [known], for [peek]: read on the main thread, written by the ask. */
+    private val answered = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** The line already known for [station], without asking: the admin's, or one a finished ask found. A card
+     * drawn after the radio home has asked ahead shows its line from its first frame rather than a frame later. */
+    fun peek(station: RadioStation): String? =
+        station.edit?.description ?: answered[station.uuid.lowercase()]
+
     suspend fun of(station: RadioStation): String? {
         // The admin's line is used as written, not through [shorten]: the admin keeps it within the same 80
         // characters, and [shorten] drops anything under 12. It is not cached with the pages' lines, so a
@@ -38,6 +46,7 @@ class StationBlurbs(private val http: OkHttpClient) {
             asked.complete(null)
             throw e
         }
+        if (line != null) answered[key] = line
         asked.complete(line)
         return line
     }

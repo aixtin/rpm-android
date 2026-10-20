@@ -1,5 +1,20 @@
 package com.rpm.player.tv.ui
 
+import com.rpm.player.core.motion.Motion
+import com.rpm.player.core.motion.LocalMotion
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Deferred
+import coil3.size.Scale
+import coil3.size.Precision
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.animation.core.EaseOutQuad
 import com.rpm.player.core.playback.StationPlaying
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
@@ -190,6 +205,12 @@ fun RadioScreen(
     var tunerClosing by remember { mutableStateOf(false) }
     val content = remember { FocusRequester() }
     val firstMode = remember { FocusRequester() }
+    // The opening: until the stations are read and their pictures decoded, only the background and the turning record
+    // show; then the record fades out and the page fades in over it ([warmRadioHome]). Kept for as long as the screen
+    // is, so coming back from the tuner does not open it again.
+    var opened by remember { mutableStateOf(false) }
+    val reveal = remember { Animatable(0f) }
+    val context = LocalContext.current
     val bannerKey = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
 
@@ -324,11 +345,37 @@ fun RadioScreen(
         ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val strip = maxWidth - 68.px
-            CompositionLocalProvider(LocalBringIntoViewSpec provides CentreRadioRows) {
+            val density = LocalDensity.current
+            val warming by rememberUpdatedState(Warming(bannerCards, essentialShown, favoritesShown, rules))
+            LaunchedEffect(Unit) {
+                if (opened) return@LaunchedEffect
+                // The essential stations first, so the rows are known; then their pictures, logos, colours and
+                // lines, decoded at the sizes the cards draw them. Neither is waited on for longer than its cap: a
+                // slow directory or a slow station page opens the page as it is.
+                withTimeoutOrNull(OPEN_READ_MS) { snapshotFlow { essential !is Essential.NotRead }.first { it } }
+                withTimeoutOrNull(OPEN_WARM_MS) { warmRadioHome(context, images, blurbs, warming, RadioSizes.of(strip, density)) }
+                opened = true
+                reveal.animateTo(1f, tween(OPEN_FADE_MS, easing = EaseOutQuad))
+            }
+            if (reveal.value < 1f) {
+                // Shown only once the opening has taken [SPINNER_WAIT_MS], so a quick one shows no record at all.
+                val spinnerIn = remember { Animatable(0f) }
+                LaunchedEffect(Unit) {
+                    delay(SPINNER_WAIT_MS)
+                    spinnerIn.animateTo(1f, tween(OPEN_FADE_MS))
+                }
+                RecordSpinner(Modifier.align(Alignment.Center).size(64.s).graphicsLayer { alpha = spinnerIn.value * (1f - reveal.value) })
+            }
+            if (opened) CompositionLocalProvider(LocalBringIntoViewSpec provides CentreRadioRows) {
                 LazyColumn(
                     state = list,
                     contentPadding = PaddingValues(start = RADIO_MARGIN, end = RADIO_MARGIN, top = 64.px, bottom = 34.s),
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        alpha = reveal.value
+                        // The whole page in one fade: its alpha on each draw, no screen-sized layer to compose it in,
+                        // which the Amiko's GPU cannot afford (as the screens' own fade, StackedScreen).
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    },
                 ) {
                     if (bannerCards.isNotEmpty()) {
                         item(key = "banner") {
@@ -349,9 +396,9 @@ fun RadioScreen(
                             )
                         }
                     }
-                    // The five ways in, under the banner where the remote goes next.
+                    // The five ways in, under the banner, out of sight until the remote comes down to them.
                     item(key = "modes") {
-                        RadioModes(first = firstMode, onPick = ::pick)
+                        RadioModes(self = firstMode, onPick = ::pick)
                     }
                     // Nothing until the first answer, so no country is named before it is known.
                     when (val read = essential) {
@@ -364,7 +411,9 @@ fun RadioScreen(
                             val country = read.countryCode?.let { countryName(it, locale) }
                             RadioHeading(if (country == null) stringResource(R.string.Viz_RadioPopular) else stringResource(R.string.Viz_RadioEssential, country))
                             if (essentialShown.isNotEmpty()) {
-                                StationRow(essentialShown, across = 4, wide = true, strip, rules, images, locale, onTune, ::openMenu)
+                                Box(Modifier.upToModes(firstMode)) {
+                                    StationRow(essentialShown, across = 4, wide = true, strip, rules, images, blurbs, locale, onTune, ::openMenu)
+                                }
                             }
                         }
                     }
@@ -373,7 +422,11 @@ fun RadioScreen(
                         if (favoritesShown.isEmpty()) {
                             Note(stringResource(R.string.Tv_Radio_NoFavorites))
                         } else {
-                            StationRow(favoritesShown, across = 6, wide = false, strip, rules, images, locale, onTune, ::openMenu)
+                            // Up from the favourites reaches the mode keys only where there is no essential row between.
+                            val under = essential !is Essential.Read || essentialShown.isEmpty()
+                            Box(if (under) Modifier.upToModes(firstMode) else Modifier) {
+                                StationRow(favoritesShown, across = 6, wide = false, strip, rules, images, null, locale, onTune, ::openMenu)
+                            }
                         }
                     }
                 }
@@ -444,31 +497,130 @@ private enum class WheelEntry(@StringRes val label: Int, val glyph: Char) {
 }
 
 /**
- * The radio's five ways in as a row of keys (the Apple TV's RadioView mode keys), each its glyph and its name
- * in the menu key's glass (PegasusMenuButton: `#14FFFFFF`, a 1 px `#B3FFFFFF` edge, corner 6·s), 52·s high,
- * 30·s under the banner.
+ * The radio's five ways in (the Apple TV's RadioView mode keys) as a carousel under the banner, out of sight until
+ * the remote comes down to it. Down from the banner gives it the focus: it slides down into place from above over
+ * [MODES_IN_MS] as it fades in, taking its room as it comes, and it goes the same way once the remote moves on.
+ *
+ * It works as the banner over it does: one stop for the remote, the key in hand in the middle, lit, and [MODES_SIDE]
+ * keys at each side of it, dimmer the further out they stand. Left and Right turn it, sliding the keys along by one
+ * over 220 ms, and it wraps: with five ways in, the keys at the ends are the far side of the round. OK takes the key in
+ * the middle. Each key is its glyph and its name in the menu key's glass (PegasusMenuButton: `#14FFFFFF`, a 1 px
+ * `#B3FFFFFF` edge, corner 6·s), [MODE_WIDTH] wide and 52·s high, 30·s under the banner.
  */
 @Composable
-private fun RadioModes(first: FocusRequester, onPick: (WheelEntry) -> Unit) {
-    Row(Modifier.padding(top = 30.s), horizontalArrangement = Arrangement.spacedBy(14.s)) {
-        for (entry in WheelEntry.entries) {
-            val shape = RoundedCornerShape(6.s)
-            DeskButton(
-                onClick = { onPick(entry) },
-                corner = 6.s,
-                modifier = Modifier
-                    .then(if (entry.ordinal == 0) Modifier.focusRequester(first) else Modifier)
-                    .height(52.s).background(Color(0x14FFFFFF), shape).border(1.px, Color(0xB3FFFFFF), shape),
-            ) {
-                Row(Modifier.padding(horizontal = 20.s), verticalAlignment = Alignment.CenterVertically) {
-                    Glyph(entry.glyph, 17.ts, Ink.Words)
-                    Spacer(Modifier.width(10.s))
-                    Text(stringResource(entry.label), style = ui(19.ts, FontWeight.SemiBold), color = Ink.Words, maxLines = 1)
+private fun RadioModes(self: FocusRequester, onPick: (WheelEntry) -> Unit) {
+    val entries = WheelEntry.entries
+    // Which key is in the middle, counted without wrapping, so a turn always slides the way it was made.
+    var at by remember { mutableIntStateOf(0) }
+    val turn = remember { Animatable(0f) }
+    var focused by remember { mutableStateOf(false) }
+    val shown = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val motion = LocalMotion.current
+    LaunchedEffect(focused) {
+        val to = if (focused) 1f else 0f
+        if (motion >= Motion.Still) shown.snapTo(to) else shown.animateTo(to, tween(MODES_IN_MS, easing = EaseOutQuad))
+    }
+    fun step(by: Int) {
+        at += by
+        scope.launch {
+            turn.snapTo(by.toFloat())
+            turn.animateTo(0f, tween(220, easing = BannerOut))
+        }
+    }
+    val density = LocalDensity.current
+    val drop = with(density) { MODES_DROP.toPx() }
+    val pitch = with(density) { (MODE_WIDTH + MODE_GAP).toPx() }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            // Its room grows and shrinks with it, so the rows under it glide rather than jump.
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, (placeable.height * shown.value).roundToInt()) { placeable.place(0, 0) }
+            }
+            .graphicsLayer {
+                alpha = shown.value
+                translationY = -(1f - shown.value) * drop
+            }
+            .focusRequester(self)
+            .onFocusChanged { focused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft -> { step(-1); true }
+                    Key.DirectionRight -> { step(1); true }
+                    else -> false
+                }
+            }
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                onPick(entries[at.mod(entries.size)])
+            },
+    ) {
+        Box(Modifier.fillMaxWidth().padding(top = 30.s).height(52.s * MODE_GROW)) {
+            // One key past each end as well, so a turn slides a key in from the edge rather than drawing it there.
+            for (d in -(MODES_SIDE + 1)..(MODES_SIDE + 1)) {
+                val entry = entries[(at + d).mod(entries.size)]
+                val shape = RoundedCornerShape(6.s)
+                androidx.compose.runtime.key(d) {
+                    Box(
+                        Modifier
+                            .align(Alignment.Center)
+                            .graphicsLayer {
+                                val place = d + turn.value
+                                val far = abs(place)
+                                // The middle key, lit while the carousel has the remote; the others dimmer the
+                                // further out, and gone past the last of [MODES_SIDE].
+                                val lit = (1f - far).coerceIn(0f, 1f) * (if (focused) 1f else 0f)
+                                translationX = place * pitch
+                                alpha = when {
+                                    far <= MODES_SIDE -> 1f - far * MODE_FADE
+                                    else -> ((MODES_SIDE + 1 - far) * (1f - MODES_SIDE * MODE_FADE)).coerceAtLeast(0f)
+                                }
+                                scaleX = 1f + (MODE_GROW - 1f) * lit
+                                scaleY = scaleX
+                            }
+                            .size(MODE_WIDTH, 52.s)
+                            .background(if (d == 0 && focused) Color(0x40FFFFFF) else Color(0x14FFFFFF), shape)
+                            .border(if (d == 0 && focused) 2.px else 1.px, if (d == 0 && focused) Color.White else Color(0xB3FFFFFF), shape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Row(Modifier.padding(horizontal = 16.s), verticalAlignment = Alignment.CenterVertically) {
+                            Glyph(entry.glyph, 17.ts, Ink.Words)
+                            Spacer(Modifier.width(10.s))
+                            Text(stringResource(entry.label), style = ui(19.ts, FontWeight.SemiBold), color = Ink.Words, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+/**
+ * Up out of the row this is on goes to the mode keys ([modes]), which are out of sight, and so no part of the
+ * remote's search by layout, while the remote is below them. The row is one line of cards, so Up from any of them
+ * leaves it; the key is taken before the search runs. (A redirect from the group's onExit was not honoured: the
+ * search went on to the back key in the corner.)
+ */
+private fun Modifier.upToModes(modes: FocusRequester): Modifier =
+    onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown || event.key != Key.DirectionUp) return@onPreviewKeyEvent false
+        runCatching { modes.requestFocus() }.isSuccess
+    }
+
+/** How many keys of the carousel stand at each side of the middle one, and how much dimmer each step out is. */
+private const val MODES_SIDE = 3
+private const val MODE_FADE = 0.2f
+
+/** A mode key's width, the room between two, and how much the middle key grows while it has the remote. */
+private val MODE_WIDTH = 196.s
+private val MODE_GAP = 14.s
+private const val MODE_GROW = 1.08f
+
+/** How long the carousel takes to come and go, and how far above its place it starts. */
+private const val MODES_IN_MS = 260
+private val MODES_DROP = 26.s
 
 /** The genre the wheel's News sets, by its name in [com.rpm.player.core.radio.RadioGenres]. */
 private const val NEWS = "News"
@@ -727,13 +879,17 @@ private fun StationBannerCard(
                 if (missing) {
                     Glyph(Fa.RADIO, (height.value * 0.20f).sp, Color(0x59FFFFFF))
                 } else {
+                    val context = LocalContext.current
+                    // Decoded for the front plate's box whatever this card's place, so a peek and the front card share
+                    // one decode, and the opening's ([warmRadioHome]) is the one found.
+                    val edge = with(LocalDensity.current) { logoEdge((width * BANNER_LOGO_WIDE).roundToPx(), (PLATE_HIGH * BANNER_LOGO_HIGH).roundToPx()) }
                     AsyncImage(
-                        model = logo,
+                        model = remember(logo, edge) { bareLogoRequest(context, logo, edge) },
                         imageLoader = images,
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
                         onState = { if (it is AsyncImagePainter.State.Error) missing = true },
-                        modifier = Modifier.sizeIn(maxWidth = width * 0.55f, maxHeight = height * 0.40f),
+                        modifier = Modifier.sizeIn(maxWidth = width * BANNER_LOGO_WIDE, maxHeight = height * BANNER_LOGO_HIGH),
                     )
                 }
             }
@@ -793,12 +949,13 @@ private fun StationRow(
     strip: Dp,
     rules: StationRules,
     images: ImageLoader,
+    blurbs: StationBlurbs?,
     locale: Locale,
     onTune: (RadioStation, StationRules) -> Unit,
     onMenu: (RadioStation, FocusRequester) -> Unit,
 ) {
-    val gap = 22.s
-    val width = (strip - gap * (across - 1)) / across
+    val gap = ROW_GAP
+    val width = rowCardWidth(strip, across)
     val first = remember { FocusRequester() }
     // The row reaches the screen's edges and is padded by the page's margin, so a focused card at either end
     // grows past the margin instead of being cut by the row's edge. The air is counted from the row's edge.
@@ -817,6 +974,7 @@ private fun StationRow(
                     // Only the essential row's wide cards wear the admin's 16:9 picture.
                     picture = if (wide) rules.cards.addressOf(station) else null,
                     images = images,
+                    blurbs = blurbs,
                     locale = locale,
                     wide = wide,
                     onClick = { onTune(station, rules) },
@@ -838,11 +996,14 @@ private class RevealStation(private val air: Float) : androidx.compose.foundatio
 }
 
 /**
- * A station's card: a still room in its colours with corner 10·s (softened on the essential row's wide cards,
- * [ESSENTIAL_SOFTEN]), or the card picture the admin chose ([picture], 16:9, cropped to the card's middle) under a
- * light veil, which shows the room until it has loaded; the logo in a well in the middle,
- * then 7·s under it the name ([CARD_TITLE_TEXT] SemiBold) and the country and quality ([CARD_LINE_TEXT],
- * `#99FFFFFF`): the album wall's sizes, where the desktop has 14 and 12.
+ * A station's card: a still room in its colours with corner 10·s, the logo in a well in the middle, then 7·s under it
+ * the name ([CARD_TITLE_TEXT] SemiBold) and the country and quality ([CARD_LINE_TEXT], `#99FFFFFF`): the album wall's
+ * sizes, where the desktop has 14 and 12.
+ *
+ * The essential row's wide cards ([wide], 16:9) are dressed differently: the card picture the admin chose ([picture],
+ * cropped to the card's middle) under a wash in the logo's own main colour, or the room (softened,
+ * [ESSENTIAL_SOFTEN]) where there is no picture; the logo itself in the middle with nothing round it, no well and no
+ * made ground; and under it, centred, the name and what the station is ([blurbs]), or its country where nothing says.
  */
 @Composable
 private fun StationCard(
@@ -850,12 +1011,17 @@ private fun StationCard(
     logo: StationLogo,
     picture: String?,
     images: ImageLoader,
+    blurbs: StationBlurbs?,
     locale: Locale,
     wide: Boolean,
     onClick: () -> Unit,
     onMenu: (RadioStation, FocusRequester) -> Unit,
     modifier: Modifier,
 ) {
+    if (wide) {
+        WideStationCard(station, logo, picture, images, blurbs, locale, onClick, onMenu, modifier)
+        return
+    }
     val self = remember { FocusRequester() }
     val palette = stationPalette(station, logo, images)
     CardButton(
@@ -879,8 +1045,184 @@ private fun StationCard(
     }
 }
 
-/** Laid over a card picture so the logo in its well reads on any picture. */
+/** The essential row's card ([StationCard], [wide]). */
+@Composable
+private fun WideStationCard(
+    station: RadioStation,
+    logo: StationLogo,
+    picture: String?,
+    images: ImageLoader,
+    blurbs: StationBlurbs?,
+    locale: Locale,
+    onClick: () -> Unit,
+    onMenu: (RadioStation, FocusRequester) -> Unit,
+    modifier: Modifier,
+) {
+    val self = remember { FocusRequester() }
+    val palette = stationPalette(station, logo, images)
+    // The logo's main colour, read once for the room as well; the picture is washed in it.
+    val tint = rememberCoverReading(logo, images)?.dominant?.let { Color(it.r, it.g, it.b) }
+    // Keyed on the admin's description too, so an edit that lands while the card is up is shown.
+    val blurb by produceState(blurbs?.peek(station), station.uuid, station.edit?.description) { if (blurbs != null) value = blurbs.of(station) }
+    val line = blurb ?: (station.countryCode?.let { countryName(it, locale) } ?: station.country?.takeIf { it.isNotBlank() })
+    CardButton(
+        onClick = onClick,
+        modifier = modifier.focusRequester(self).heldOkMenu { onMenu(station, self) },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(7.s), horizontalAlignment = Alignment.CenterHorizontally) {
+            BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.s))) {
+                CardRoomView(palette, apart = 0, drift = false, fewest = 32, soften = ESSENTIAL_SOFTEN, modifier = Modifier.matchParentSize())
+                if (picture != null) {
+                    CoverImage(picture, images, ContentScale.Crop, Modifier.matchParentSize(), onShown = {})
+                    Box(Modifier.matchParentSize().background(tint?.copy(alpha = PICTURE_TINT) ?: CARD_PICTURE_VEIL))
+                }
+                BareLogo(logo, images, maxWidth * WIDE_LOGO_WIDE, maxHeight * WIDE_LOGO_HIGH, Modifier.align(Alignment.Center))
+            }
+            Text(station.display, style = ui(CARD_TITLE_TEXT, FontWeight.SemiBold), color = Ink.Card, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            line?.let { Text(it, style = ui(CARD_LINE_TEXT), color = Ink.Dim, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+        }
+    }
+}
+
+/**
+ * A station's logo as it is, fitted whole into [width] by [height] with nothing behind or round it, or the antenna
+ * where it has none. Decoded at [logoEdge] for the box, the request the radio home's opening decodes ahead with.
+ */
+@Composable
+private fun BareLogo(logo: StationLogo, images: ImageLoader, width: Dp, height: Dp, modifier: Modifier) {
+    val context = LocalContext.current
+    var missing by remember(logo) { mutableStateOf(false) }
+    val edge = with(LocalDensity.current) { logoEdge(width.roundToPx(), height.roundToPx()) }
+    Box(modifier.size(width, height), contentAlignment = Alignment.Center) {
+        if (missing) {
+            Glyph(Fa.ANTENNA, (height.value * 0.45f).sp, Color(0x59FFFFFF))
+        } else {
+            AsyncImage(
+                model = remember(logo, edge) { bareLogoRequest(context, logo, edge) },
+                imageLoader = images,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                onState = { if (it is AsyncImagePainter.State.Error) missing = true },
+                modifier = Modifier.matchParentSize(),
+            )
+        }
+    }
+}
+
+/** Laid over a card picture so the logo reads on any picture: black where the logo's colour is not read yet. */
 private val CARD_PICTURE_VEIL = Color(0x40000000)
+
+/** How strongly an essential card's picture is washed in its logo's colour. */
+private const val PICTURE_TINT = 0.55f
+
+/** The box the bare logo is fitted into, as shares of an essential card's picture, and of a banner card. */
+private const val WIDE_LOGO_WIDE = 0.6f
+private const val WIDE_LOGO_HIGH = 0.55f
+private const val BANNER_LOGO_WIDE = 0.55f
+private const val BANNER_LOGO_HIGH = 0.40f
+
+/** The room between two cards of a row. */
+private val ROW_GAP = 22.s
+
+/** A card's width in a row of [across] across the [strip]. */
+private fun rowCardWidth(strip: Dp, across: Int): Dp = (strip - ROW_GAP * (across - 1)) / across
+
+/** The square a bare logo is decoded into for a box [width] by [height] pixels: its longer side, rounded up to 32
+ * pixels, so two boxes a pixel apart share one decode. */
+private fun logoEdge(width: Int, height: Int): Int = ((maxOf(width, height, 1) + 31) / 32) * 32
+
+/** A bare logo's request, the same wherever it is made, so a decode ahead is found by the card ([BareLogo]). */
+private fun bareLogoRequest(context: android.content.Context, logo: StationLogo, edge: Int): ImageRequest =
+    ImageRequest.Builder(context)
+        .data(logo)
+        .size(edge)
+        .scale(Scale.FIT)
+        .precision(Precision.INEXACT)
+        .build()
+
+// ── the opening ──
+
+/** The stations the radio home shows, read for its opening. */
+private class Warming(val banner: List<RadioStation>, val essential: List<RadioStation>, val favorites: List<RadioStation>, val rules: StationRules)
+
+/** The sizes in pixels the radio home's cards draw their pictures at, for a [strip] of the screen's width. */
+private class RadioSizes(val plate: Int, val plateHigh: Int, val wide: Int, val square: Int, val bannerLogo: Int, val wideLogo: Int, val mark: Int) {
+    companion object {
+        fun of(strip: Dp, density: androidx.compose.ui.unit.Density): RadioSizes = with(density) {
+            val plate = androidx.compose.ui.unit.min(strip * 0.68f, 760.s)
+            val wide = rowCardWidth(strip, 4)
+            val square = rowCardWidth(strip, 6)
+            RadioSizes(
+                plate = plate.roundToPx(),
+                plateHigh = PLATE_HIGH.roundToPx(),
+                wide = wide.roundToPx(),
+                square = square.roundToPx(),
+                bannerLogo = logoEdge((plate * BANNER_LOGO_WIDE).roundToPx(), (PLATE_HIGH * BANNER_LOGO_HIGH).roundToPx()),
+                wideLogo = logoEdge((wide * WIDE_LOGO_WIDE).roundToPx(), (wide * 9f / 16f * WIDE_LOGO_HIGH).roundToPx()),
+                // The well is half the square card, and the mark is made at the well's size ([StationMark]).
+                mark = markEdge((square * 0.5f).roundToPx()),
+            )
+        }
+    }
+}
+
+/**
+ * Everything the radio home's first screen draws, decoded before it is drawn, so the page comes up whole rather
+ * than a logo, a room's colours and a line at a time, with the stutter of each. Every request is the one the card
+ * makes, at the card's size, so the card finds it in memory: the banner's logos ([bareLogoRequest]), the essential
+ * cards' pictures ([aheadRequest]) and logos, the favourites' made marks ([stationMarkRequest]) for the first
+ * [WARM_FAVORITES], every station's colours ([readCoverColours]) and the essential and banner stations' lines
+ * ([StationBlurbs]). All at once; the caller caps the wait.
+ */
+private suspend fun warmRadioHome(context: android.content.Context, images: ImageLoader, blurbs: StationBlurbs, warming: Warming, sizes: RadioSizes) = coroutineScope {
+    val rules = warming.rules
+    fun logoOf(station: RadioStation) = StationLogo.of(station, rules.logoStamp)
+    val asks = ArrayList<Deferred<Any?>>()
+    fun ask(block: suspend () -> Any?) {
+        asks += async {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+    for (station in warming.banner) {
+        val logo = logoOf(station)
+        ask { images.execute(bareLogoRequest(context, logo, sizes.bannerLogo)) }
+        ask { readCoverColours(images, logo, context) }
+        ask { blurbs.of(station) }
+    }
+    for (station in warming.essential) {
+        val logo = logoOf(station)
+        ask { images.execute(bareLogoRequest(context, logo, sizes.wideLogo)) }
+        ask { readCoverColours(images, logo, context) }
+        ask { blurbs.of(station) }
+        rules.cards.addressOf(station)?.let { picture -> ask { images.execute(aheadRequest(context, picture, sizes.wide, sizes.wide * 9 / 16)) } }
+    }
+    for (station in warming.favorites.take(WARM_FAVORITES)) {
+        val logo = logoOf(station)
+        ask { images.execute(stationMarkRequest(context, logo, CARD_MARK_INSET, sizes.mark, 0)) }
+        ask { readCoverColours(images, logo, context) }
+    }
+    asks.awaitAll()
+}
+
+/** How long the opening waits for the essential stations, and then for their pictures, before showing the page. */
+private const val OPEN_READ_MS = 2500L
+private const val OPEN_WARM_MS = 2500L
+
+/** How long the page takes to fade in once it is ready, and how long before the turning record shows at all. */
+private const val OPEN_FADE_MS = 360
+private const val SPINNER_WAIT_MS = 150L
+
+/** How many favourites' marks are decoded ahead: the row's first screen and the next. */
+private const val WARM_FAVORITES = 12
+
+/** How far the mark sits off the edge of a station card's well. */
+private const val CARD_MARK_INSET = 4f / 51f
 
 /**
  * A station's logo in its well (StationWell): [side] square, corner `side * 6 / 51`, `#22000000` with a
@@ -901,7 +1243,7 @@ fun LogoWell(logo: StationLogo, images: ImageLoader, side: Dp, modifier: Modifie
             StationMark(
                 logo,
                 images,
-                inset = 4f / 51f, fadeInMs = 0,
+                inset = CARD_MARK_INSET, fadeInMs = 0,
                 onState = { if (it is AsyncImagePainter.State.Error) missing = true },
                 modifier = Modifier.matchParentSize(),
             )
@@ -926,16 +1268,8 @@ fun LogoWell(logo: StationLogo, images: ImageLoader, side: Dp, modifier: Modifie
 fun StationMark(logo: StationLogo, images: ImageLoader, inset: Float, fadeInMs: Int, onState: (AsyncImagePainter.State) -> Unit, modifier: Modifier) {
     val context = LocalContext.current
     BoxWithConstraints(modifier) {
-        val edge = ((constraints.maxWidth.coerceIn(1, MARK_MOST) + 31) / 32) * 32
-        val request = remember(logo, inset, edge, fadeInMs) {
-            ImageRequest.Builder(context)
-                .data(logo)
-                .size(maxOf(edge, MARK_READ))
-                .allowHardware(false)
-                .transformations(StationBadge(logo.uuid, inset, edge))
-                .crossfade(fadeInMs)
-                .build()
-        }
+        val edge = markEdge(constraints.maxWidth)
+        val request = remember(logo, inset, edge, fadeInMs) { stationMarkRequest(context, logo, inset, edge, fadeInMs) }
         AsyncImage(
             model = request,
             imageLoader = images,
@@ -946,6 +1280,19 @@ fun StationMark(logo: StationLogo, images: ImageLoader, inset: Float, fadeInMs: 
         )
     }
 }
+
+/** The size a mark is made at for a box [width] pixels wide: rounded up to 32 pixels, at most [MARK_MOST]. */
+private fun markEdge(width: Int): Int = ((width.coerceIn(1, MARK_MOST) + 31) / 32) * 32
+
+/** A made mark's request ([StationMark]), the same wherever it is made, so a decode ahead is found by the card. */
+private fun stationMarkRequest(context: android.content.Context, logo: StationLogo, inset: Float, edge: Int, fadeInMs: Int): ImageRequest =
+    ImageRequest.Builder(context)
+        .data(logo)
+        .size(maxOf(edge, MARK_READ))
+        .allowHardware(false)
+        .transformations(StationBadge(logo.uuid, inset, edge))
+        .crossfade(fadeInMs)
+        .build()
 
 private const val MARK_READ = 256
 private const val MARK_MOST = 1024

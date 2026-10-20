@@ -38,25 +38,32 @@ fun rememberCoverReading(picture: Any?, images: ImageLoader): CoverColor.Reading
             reading = null
             return@LaunchedEffect
         }
-        val key = readingKey(images, picture, context)
-        READINGS.get(key)?.let {
-            reading = it
-            return@LaunchedEffect
-        }
-        val request = ImageRequest.Builder(context)
-            .data(picture)
-            .size(COLOUR_SAMPLE)
-            .allowHardware(false)
-            // Kept in memory apart from the cards' pictures. Under the same key, this small software
-            // bitmap would replace a card's larger hardware bitmap, and the card would decode its cover again.
-            .memoryCacheKeyExtra("use", "colour")
-            .build()
-        val bitmap = (images.execute(request) as? SuccessResult)?.image?.toBitmap() ?: return@LaunchedEffect
-        val read = withContext(Dispatchers.Default) { CoverColor.read(bitmap) }
-        READINGS.put(key, read)
-        reading = read
+        readCoverColours(images, picture, context)?.let { reading = it }
     }
     return reading
+}
+
+/**
+ * Reads [picture]'s colours, or gives the reading kept from before, and keeps it in [READINGS], where
+ * [rememberCoverReading] finds it on its first frame. A screen can call this ahead of drawing its cards (the radio
+ * home does while it opens), so the cards come up in their colours rather than in grey. Null where the picture
+ * cannot be read.
+ */
+suspend fun readCoverColours(images: ImageLoader, picture: Any, context: android.content.Context): CoverColor.Reading? {
+    val key = readingKey(images, picture, context)
+    READINGS.get(key)?.let { return it }
+    val request = ImageRequest.Builder(context)
+        .data(picture)
+        .size(COLOUR_SAMPLE)
+        .allowHardware(false)
+        // Kept in memory apart from the cards' pictures. Under the same key, this small software
+        // bitmap would replace a card's larger hardware bitmap, and the card would decode its cover again.
+        .memoryCacheKeyExtra("use", "colour")
+        .build()
+    val bitmap = (images.execute(request) as? SuccessResult)?.image?.toBitmap() ?: return null
+    val read = withContext(Dispatchers.Default) { CoverColor.read(bitmap) }
+    READINGS.put(key, read)
+    return read
 }
 
 /** The key a reading is kept under: the picture's memory key ([memoryKeyOf]), else the picture itself. */

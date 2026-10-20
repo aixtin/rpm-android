@@ -32,6 +32,11 @@ object KaraokeLight {
     /** The slowest the light may cross a letter of a held word, in seconds. */
     const val HELD_GLYPH = 0.6
 
+    /** How long a sung line takes to fade back to [REST] once its last word has been sung, in seconds. It fades slowly
+     * and on an even curve, so the line lets go as the voice does, and is already at the strength the lines round it
+     * have when the next line takes over, instead of dropping there in one frame. */
+    const val LINE_FADE = 1.5
+
     /** How many letters the spans hold, which is the size [light] fills. */
     fun letters(spans: List<WordSpan>): Int = spans.sumOf { it.length }
 
@@ -51,13 +56,19 @@ object KaraokeLight {
     /** The strength of every letter at [now], from [REST] to 1, written into [into] in reading order. It fills an
      * array the caller keeps, so a frame allocates nothing. */
     fun light(spans: List<WordSpan>, now: Double, into: FloatArray) {
+        // After the last word: the whole line on its way back to rest.
+        val after = if (spans.isEmpty()) 0.0 else now - spans.last().to
+        val fade = if (after <= 0) 1f else {
+            val t = (after / LINE_FADE).coerceIn(0.0, 1.0)
+            (1 - t * t * (3 - 2 * t)).toFloat()
+        }
         var k = 0
         for (w in spans.indices) {
             val word = spans[w]
             val last = w == spans.lastIndex
             for (c in 0 until word.length) {
                 if (k >= into.size) return
-                into[k++] = REST + (1 - REST) * through(word, c, last, now)
+                into[k++] = REST + (1 - REST) * through(word, c, last, now) * fade
             }
         }
     }

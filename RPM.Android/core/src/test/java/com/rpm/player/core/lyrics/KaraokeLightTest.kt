@@ -27,6 +27,18 @@ class KaraokeLightTest {
     }
 
     @Test
+    fun theLineFadesBackToRestSlowlyAfterItsLastWord() {
+        val spans = listOf(WordSpan(0, 2, 0.0, 0.5))
+        val into = FloatArray(2)
+        KaraokeLight.light(spans, 0.5, into)
+        assertEquals(1f, into[1], 1e-6f)
+        KaraokeLight.light(spans, 0.5 + KaraokeLight.LINE_FADE / 2, into)
+        assertEquals(KaraokeLight.REST + (1 - KaraokeLight.REST) * 0.5f, into[1], 1e-6f)
+        KaraokeLight.light(spans, 0.5 + KaraokeLight.LINE_FADE, into)
+        assertEquals(KaraokeLight.REST, into[1], 1e-6f)
+    }
+
+    @Test
     fun aHeldWordIsSweptSlowlyOverItsHold() {
         // Two letters held for a second: half a second a letter, so the second letter is lit at 20.5 s, not at once.
         val word = WordSpan(0, 2, 20.0, 21.0)
@@ -50,7 +62,10 @@ class KaraokeLightTest {
         assertEquals(9, into.size)
         KaraokeLight.light(spans, -1.0, into)
         into.forEach { assertEquals(KaraokeLight.REST, it, 1e-6f) }
-        KaraokeLight.light(spans, 10.0, into)
+        // Every letter lit as the last word ends, and back at rest once the line has faded after it.
+        KaraokeLight.light(spans, spans.last().to, into)
         into.forEach { assertEquals(1f, it, 1e-6f) }
+        KaraokeLight.light(spans, 10.0, into)
+        into.forEach { assertEquals(KaraokeLight.REST, it, 1e-6f) }
     }
 }

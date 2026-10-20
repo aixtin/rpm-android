@@ -137,6 +137,10 @@ class Dossiers(
         withContext(Dispatchers.IO) { known(key) }?.let { return it }
 
         val asking = synchronized(lock) {
+            // Asked again under the lock: a request for the same key can finish while `known` above is
+            // reading, and `keep` puts its answer in memory before the request leaves `running`. So here
+            // there is always either the answer or the request in flight, never a second request.
+            memory[key]?.let { return it }
             running[key] ?: scope.async(Dispatchers.IO) {
                 try {
                     fetch(subject, languages).also { answer ->

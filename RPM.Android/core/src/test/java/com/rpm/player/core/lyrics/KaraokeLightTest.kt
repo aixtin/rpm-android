@@ -27,18 +27,20 @@ class KaraokeLightTest {
     }
 
     @Test
-    fun aStretchedWordIsCrossedAtASingingRateAndThenWaits() {
-        // Three letters measured over two seconds: the aligner lost the thread. The last letter is lit by 3/7 s.
-        val word = WordSpan(0, 3, 0.0, 2.0)
-        assertEquals(1f, KaraokeLight.through(word, 2, last = false, now = 2 * KaraokeLight.SLOWEST_GLYPH), 1e-6f)
+    fun aHeldWordIsSweptSlowlyOverItsHold() {
+        // Two letters held for a second: half a second a letter, so the second letter is lit at 20.5 s, not at once.
+        val word = WordSpan(0, 2, 20.0, 21.0)
+        assertEquals(1f, KaraokeLight.through(word, 0, last = true, now = 20.0), 1e-6f)
+        assertEquals(0f, KaraokeLight.through(word, 1, last = true, now = 20.0), 1e-6f)
+        assertEquals(0.5f, KaraokeLight.through(word, 1, last = true, now = 20.25), 1e-6f)
+        assertEquals(1f, KaraokeLight.through(word, 1, last = true, now = 20.5), 1e-6f)
     }
 
     @Test
-    fun aHeldLastWordComesUpWhole() {
-        val word = WordSpan(0, 4, 20.0, 23.0)
-        val letters = (0 until 4).map { KaraokeLight.through(word, it, last = true, now = 20.0 - KaraokeLight.HELD_ARRIVAL / 2) }
-        letters.forEach { assertEquals(0.5f, it, 1e-6f) }
-        assertEquals(1f, KaraokeLight.through(word, 3, last = true, now = 20.0), 1e-6f)
+    fun aStretchedWordIsCrossedNoSlowerThanTheHeldRate() {
+        // Three letters measured over ten seconds: the aligner lost the thread. The last letter is lit by 2 x 0.6 s.
+        val word = WordSpan(0, 3, 0.0, 10.0)
+        assertEquals(1f, KaraokeLight.through(word, 2, last = false, now = 2 * KaraokeLight.HELD_GLYPH), 1e-6f)
     }
 
     @Test

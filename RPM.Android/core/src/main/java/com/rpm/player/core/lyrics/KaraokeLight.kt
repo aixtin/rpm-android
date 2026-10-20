@@ -11,8 +11,10 @@ package com.rpm.player.core.lyrics
  * aligner lost the thread, and a sweep crawling through it reads as the sheet stalling. Each letter arrives over
  * [GLYPH_SOFTNESS] or its own share, whichever is longer, so three or four letters are always part-way lit and the
  * eye sees one soft edge, not a row of lights. The arrival FINISHES on the letter's moment, so the letter is at
- * full strength as it is sung, not after. A held last word (longer than its letters take to sing) is a carried
- * note, not a sweep: it comes up whole over [HELD_ARRIVAL] and stays lit while the note is held.
+ * full strength as it is sung, not after. A held word (longer than its letters take to sing) is swept slowly over
+ * the whole time it is held, so the light keeps moving through a carried note rather than stopping on it; at most
+ * [HELD_GLYPH] a letter, so a gap in the timing does not crawl. (Pegasus lit a held last word whole; on the TV that
+ * read as the sweep hanging on the word.)
  *
  * Letters are counted in reading order over the spans, the gaps between words excluded ([letters]).
  */
@@ -27,8 +29,8 @@ object KaraokeLight {
     /** The slowest the light may cross a letter, in seconds: the same seven a second [LyricTiming] caps a line at. */
     const val SLOWEST_GLYPH = 1.0 / 7.0
 
-    /** How quickly a held last word comes up, whole, in seconds. */
-    const val HELD_ARRIVAL = 0.22
+    /** The slowest the light may cross a letter of a held word, in seconds. */
+    const val HELD_GLYPH = 0.6
 
     /** How many letters the spans hold, which is the size [light] fills. */
     fun letters(spans: List<WordSpan>): Int = spans.sumOf { it.length }
@@ -38,10 +40,11 @@ object KaraokeLight {
     fun through(word: WordSpan, c: Int, last: Boolean, now: Double): Float {
         val of = word.length
         val held = word.to - word.from
-        val carried = last && held > of * SLOWEST_GLYPH
-        val step = if (carried) 0.0 else minOf(held / maxOf(1, of), SLOWEST_GLYPH)
+        val share = held / maxOf(1, of)
+        // A word sung in its letters' time keeps Pegasus's cap; a held one is swept over its hold.
+        val step = if (share > SLOWEST_GLYPH) minOf(share, HELD_GLYPH) else share
         val opens = word.from + step * c
-        val arriving = if (carried) HELD_ARRIVAL else maxOf(GLYPH_SOFTNESS, step)
+        val arriving = maxOf(GLYPH_SOFTNESS, step)
         return ((now - (opens - arriving)) / arriving).coerceIn(0.0, 1.0).toFloat()
     }
 

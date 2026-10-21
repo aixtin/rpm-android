@@ -62,6 +62,8 @@ import com.rpm.player.phone.player.NowPlayingSheet
 import com.rpm.player.phone.library.LibraryPage
 import com.rpm.player.phone.library.PlaylistPage
 import com.rpm.player.phone.library.QueuePage
+import com.rpm.player.phone.library.RecordArtists
+import com.rpm.player.phone.library.ReviewWalls
 import com.rpm.player.phone.player.rememberQueue
 import com.rpm.player.phone.signin.SignIn
 import com.rpm.player.phone.signin.SignInScreen
@@ -106,6 +108,7 @@ fun Root(services: Services, settings: PhoneSettings, signIn: SignIn, controller
 @Composable
 private fun Shell(services: Services, settings: PhoneSettings, ready: LibraryState.Ready, controller: Player?, sittingFrom: Int) {
     val backdrop = rememberBackdrop()
+    val session by services.auth.session.collectAsStateWithLifecycle()
     val density = LocalDensity.current
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     var opened by rememberSaveable(stateSaver = Step.stack) { mutableStateOf(listOf<Step>()) }
@@ -127,9 +130,15 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
     LaunchedEffect(Unit) { services.radio.refreshRules() }
     val stations = remember(heard, rules) { rules.shown(heard.map { it.station }).take(HOME_STATIONS) }
 
-    // One record page. It is used for whichever tab's stack the record was opened on.
+    // The record pages' reviews, one wall per record for the life of this collection, and the acts each record's
+    // artist line opens.
+    val reviewWalls = remember(collection.shelf) { ReviewWalls(services.community) }
+    val recordArtists = remember(ready.walls) { RecordArtists(ready.walls) }
+
+    // One record page. It is used for whichever tab's stack the record was opened on, and what it opens (a similar
+    // record, the artist) goes on the same stack.
     @Composable
-    fun record(album: CloudAlbum, onBack: () -> Unit) {
+    fun record(album: CloudAlbum, push: (Step) -> Unit, onBack: () -> Unit) {
         val queue = { queueOf(collection.shelf, album, collection.cover(album), collection.disc(album)) }
         AlbumPage(
             album,
@@ -140,6 +149,14 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             onPlay = { at -> controller?.playQueue(queue(), at) },
             onShuffle = { controller?.playQueue(queue().shuffled(), 0) },
             onBack = onBack,
+            collection = collection,
+            dossiers = services.dossiers,
+            artists = remember(album, recordArtists) { recordArtists.of(album) },
+            onArtist = { push(Step.Artist(it.name)) },
+            onOpenAlbum = { push(Step.Record(it.key)) },
+            classical = services.classicalMarks.isClassical(collection.shelf, album),
+            wall = reviewWalls.of(album),
+            me = session?.userId,
         )
     }
 
@@ -229,7 +246,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
         val act = (step as? Step.Artist)?.let { ready.walls.artist(it.name) }
         val kind = (step as? Step.Genre)?.let { ready.walls.genre(it.name) }
         when {
-            album != null -> record(album, onBack)
+            album != null -> record(album, push, onBack)
             list != null -> playlist(list, onBack)
             act != null -> artist(act, push, onBack)
             kind != null -> genre(kind, push, onBack)

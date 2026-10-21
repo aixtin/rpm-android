@@ -88,6 +88,9 @@ class Services(context: Context, val levelling: Levelling, tunerOpensOn: com.rpm
     val peerHttp: OkHttpClient get() = peerClient.value
     val auth = AuthClient(HttpAuthWire(http), KeystoreSessionStore(context), clock).apply { load() }
     val cloud = CloudClient(http, auth)
+
+    /** rpm's shared album wall: the reviews and ratings on a record page. */
+    val community = com.rpm.player.core.cloud.CommunityClient(http, auth)
     val streamLinks = StreamLinks(cloud, clock)
 
     /** The audio being heard, filled by the playback service's sink and read by the room. */

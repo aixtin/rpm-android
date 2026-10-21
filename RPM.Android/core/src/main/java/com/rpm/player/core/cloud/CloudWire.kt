@@ -40,6 +40,13 @@ data class CloudTrackTags(
     val bitsPerSample: Int = 0,
     val bitrateKbps: Int = 0,
     val codecDescription: String? = null,
+    /** How many channels the file has, 0 if not known. The record page names a layout other than stereo ("5.1"). */
+    val channels: Int = 0,
+    /** The classical work the track is part of, the movement's own name, and the composer, where the file says.
+     * A record its owner marked classical is listed as works with their movements under them. */
+    val work: String? = null,
+    val movementName: String? = null,
+    val composer: String? = null,
     val favorite: Boolean = false,
     /** When the favourite mark was set, in .NET ticks (UTC), as the desktop writes it. 0 if not known. */
     val favoritedAt: Long = 0,

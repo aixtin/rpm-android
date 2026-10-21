@@ -19,6 +19,7 @@ import com.rpm.player.core.playback.EXTRA_COVER_KEYS
 import com.rpm.player.core.playback.StationItems
 import com.rpm.player.core.playback.TrackRef
 import com.rpm.player.core.radio.StationLogo
+import coil3.request.transformations
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -132,18 +133,30 @@ class CastPlayer(player: Player, private val casting: Casting) : ForwardingPlaye
 }
 
 /**
- * Reads a record's cover, or a station's logo, through the app's own image loader, as a JPEG for the receiver.
- * These are the same pictures that the player draws, with the same keys, so a cover that is already drawn comes
- * from Coil's cache.
+ * Reads a record's cover, or a station's logo, through the app's own image loader, as a JPEG for the receiver and
+ * for the session (the launcher's now playing card). These are the same pictures that the player draws, with the same
+ * keys, so a cover that is already drawn comes from Coil's cache.
+ *
+ * A station's logo is dressed as the player's sleeve dresses it ([com.rpm.player.core.radio.StationBadge] on the
+ * sleeve's dark, held the sleeve's inset off the edges), so the home screen shows the station as the app does: a
+ * bare logo there was a mark on black, or a wide lockup stretched to the card.
  */
 class CoilCastCovers(private val context: Context, private val images: ImageLoader) : CastCovers {
     override suspend fun jpegOf(item: MediaItem): ByteArray? {
         val data: Any = pictureOf(item) ?: return null
-        val request = ImageRequest.Builder(context).data(data).size(EDGE).allowHardware(false).build()
+        val request = ImageRequest.Builder(context).data(data).size(EDGE).allowHardware(false).apply {
+            if (data is StationLogo) transformations(com.rpm.player.core.radio.StationBadge(data.uuid, SLEEVE_INSET, EDGE))
+        }.build()
         val bitmap = (images.execute(request) as? SuccessResult)?.image?.toBitmap() ?: return null
         return withContext(Dispatchers.Default) {
+            // A dressed logo leaves the sleeve's dark round a picture that does not fill it; JPEG has no clear.
+            val flat = if (data !is StationLogo) bitmap else Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888).also {
+                val canvas = android.graphics.Canvas(it)
+                canvas.drawColor(SLEEVE_DARK)
+                canvas.drawBitmap(bitmap, 0f, 0f, null)
+            }
             ByteArrayOutputStream().use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
+                flat.compress(Bitmap.CompressFormat.JPEG, QUALITY, out)
                 out.toByteArray()
             }
         }
@@ -164,5 +177,10 @@ class CoilCastCovers(private val context: Context, private val images: ImageLoad
         /** The size of the picture sent to the receiver. Its cover fills about half the height of a 1080p screen. */
         const val EDGE = 600
         const val QUALITY = 85
+
+        /** The player's sleeve: its dark (#0A0A0A) and how far a logo that does not fill it is held off the edges, 34 px
+         * of a 410 px sleeve at 1080p (the TV's StationArt). */
+        const val SLEEVE_DARK = 0xFF0A0A0A.toInt()
+        const val SLEEVE_INSET = 34f / 410f
     }
 }

@@ -227,7 +227,10 @@ fun RpmApp(
         var pagePicture by remember { mutableStateOf<Any?>(null) }
         // A genre's page paints the room in the genre's own colours rather than in a picture's.
         var pagePalette by remember { mutableStateOf<RoomPalette?>(null) }
-        val playingPicture: Any? = nowPlaying?.station?.logo ?: nowPlaying?.cover
+        // A station's room takes the colours of the song it plays, once that song's cover is found, as a record's room
+        // takes its sleeve's; the station's logo until then, and between songs.
+        val songCover = rememberSongCover(nowPlaying?.station)
+        val playingPicture: Any? = songCover ?: nowPlaying?.station?.logo ?: nowPlaying?.cover
         val roomPicture = if (!playerShown && pagePicture != null) pagePicture else playingPicture
         val reading = rememberCoverReading(roomPicture, services.images)
         val roomPalette = (if (!playerShown) pagePalette else null) ?: reading?.room ?: RoomPalette.FALLBACK

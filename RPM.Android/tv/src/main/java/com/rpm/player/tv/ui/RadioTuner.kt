@@ -609,7 +609,10 @@ private fun TunerPlayer(
         Box(Modifier.matchParentSize().border(1.px, Brush.verticalGradient(0f to Ink.SmokeRimTop, 0.5f to Ink.SmokeRimMiddle, 1f to Ink.SmokeRimBottom), shape))
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.s)) {
             if (logo != null) {
-                LogoWell(logo, images, min(height * 0.44f, width * 0.4f), Modifier.padding(bottom = 22.s - 6.s))
+                // The song playing shows over the logo, as on the mini player, while the card is of the station playing.
+                val ours = playing != null && (shown == null || shown.answersTo(playing.logo.uuid))
+                val cover = rememberSongCover(playing?.takeIf { ours })
+                LogoWell(logo, images, min(height * 0.44f, width * 0.4f), Modifier.padding(bottom = 22.s - 6.s), songCover = cover)
             }
             val said = playing?.said as? Icy.Said.Song
             val title = when {

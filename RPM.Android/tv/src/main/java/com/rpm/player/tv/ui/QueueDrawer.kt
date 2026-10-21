@@ -52,6 +52,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.LastBaseline
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -516,8 +519,8 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, room: Dr
 }
 
 /**
- * The drawer's head, as the side menu's: "Now playing" (26·s SemiBold, the settings panel's title size) and, at the
- * right, the rearrange key and the close key, boxed as the side menu's keys are (52·s). The rearrange key is lit
+ * The drawer's head, as the side menu's: "Now playing" (26·s SemiBold, the settings panel's title size), its letters
+ * ending level with the keys' bottom edge, and, at the right, the rearrange key and the close key, boxed as the side menu's keys are (52·s). The rearrange key is lit
  * while rearranging is on, and a line under the title then says how a song is moved. The desktop's drawer has
  * Playlists and Albums tabs beside the title (PegasusChrome.Browse.cs); the television's holds the queue alone, so
  * it names that and nothing else.
@@ -525,14 +528,26 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, room: Dr
 @Composable
 private fun DrawerHead(rearranging: Boolean, hinting: Boolean, onRearrange: () -> Unit, onClose: () -> Unit, keys: Modifier, closeKey: Modifier) {
     Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // The room under the row is for the title's descenders, which hang below the keys' edge, so the list does not
+        // run up into them.
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 10.s)) {
             Text(
                 stringResource(R.string.Viz_BrowseQueue),
                 style = ui(26.ts, FontWeight.SemiBold),
                 color = Ink.Words,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(start = 10.ds, end = 10.s),
+                // The title stands on the keys' bottom edge: its box ends at its baseline and sits at the bottom of
+                // the row, so the letters end level with the keys and only the tails of p, y and g hang below.
+                modifier = Modifier
+                    .weight(1f)
+                    .align(Alignment.Bottom)
+                    .padding(start = 10.ds, end = 10.s)
+                    .layout { measurable, constraints ->
+                        val title = measurable.measure(constraints)
+                        val baseline = title[LastBaseline].takeIf { it != AlignmentLine.Unspecified } ?: title.height
+                        layout(title.width, baseline) { title.place(0, 0) }
+                    },
             )
             val rearrangeLabel = stringResource(R.string.Rpm_Queue_Rearrange)
             DrawerKey(

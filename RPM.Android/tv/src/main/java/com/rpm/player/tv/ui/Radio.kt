@@ -1196,7 +1196,7 @@ private const val CARD_MARK_INSET = 4f / 51f
  * it does not fill; the antenna at `side * 20 / 51` in `#44FFFFFF` for a station with no logo.
  */
 @Composable
-fun LogoWell(logo: StationLogo, images: ImageLoader, side: Dp, modifier: Modifier) {
+fun LogoWell(logo: StationLogo, images: ImageLoader, side: Dp, modifier: Modifier, songCover: String? = null) {
     val shape = RoundedCornerShape(side * 6f / 51f)
     var missing by remember(logo) { mutableStateOf(false) }
     Box(
@@ -1214,6 +1214,8 @@ fun LogoWell(logo: StationLogo, images: ImageLoader, side: Dp, modifier: Modifie
                 modifier = Modifier.matchParentSize(),
             )
         }
+        // The song the station is playing, where its cover was found, over the logo ([SongCoverOver]).
+        SongCoverOver(songCover, images, Modifier.matchParentSize())
     }
 }
 

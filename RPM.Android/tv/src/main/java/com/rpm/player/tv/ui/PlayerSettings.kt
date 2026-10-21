@@ -1,5 +1,6 @@
 package com.rpm.player.tv.ui
 
+import com.rpm.player.core.playback.SongRadioRuns
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -169,6 +170,16 @@ class PlayerSettings(context: Context) {
     var karaoke by mutableStateOf(prefs.getBoolean(KEY_KARAOKE, false))
         private set
 
+    /** Whether an album, a playlist or a single that ends goes on as a mixtape of songs like it. The playback service
+     * reads the stored value when a list's last song starts ([com.rpm.player.core.playback.SongRadioRuns]). */
+    var mixtapeAfter by mutableStateOf(prefs.getBoolean(SongRadioRuns.MIXTAPE_AFTER, SongRadioRuns.MIXTAPE_AFTER_DEFAULT))
+        private set
+
+    fun switchMixtapeAfter() {
+        mixtapeAfter = !mixtapeAfter
+        prefs.edit().putBoolean(SongRadioRuns.MIXTAPE_AFTER, mixtapeAfter).apply()
+    }
+
     fun switchKaraoke() {
         karaoke = !karaoke
         prefs.edit().putBoolean(KEY_KARAOKE, karaoke).apply()
@@ -233,7 +244,7 @@ class PlayerSettings(context: Context) {
         /** The screensaver's choices in minutes, in the order OK steps through them; 0 is off. */
         val SCREENSAVER_CHOICES = listOf(0, 1, 2, 5, 10, 15, 30)
         private const val SCREENSAVER_DEFAULT = 2
-        private const val FILE = "rpm.settings"
+        private const val FILE = SongRadioRuns.SETTINGS_FILE
         private const val KEY_VIEW = "player.view"
         private const val KEY_STATS = "stats.shown"
         private const val KEY_SAVER = "screensaver.minutes"

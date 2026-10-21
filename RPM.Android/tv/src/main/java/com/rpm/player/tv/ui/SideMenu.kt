@@ -516,6 +516,7 @@ private fun settingLines(page: SettingsPage, settings: PlayerSettings, account: 
                     else -> off
                 },
             ) { if (account.supporter == true) settings.switchKaraoke() },
+            SettingLine(stringResource(R.string.Tv_SettingsMixtapeAfter), if (settings.mixtapeAfter) on else off, settings::switchMixtapeAfter),
         )
         SettingsPage.Visualisation -> listOf(
             SettingLine(

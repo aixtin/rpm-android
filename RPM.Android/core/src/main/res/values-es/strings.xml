@@ -5975,6 +5975,9 @@
     <!-- Row in the Android TV app's settings: whether the sung lyric line lights word by word. -->
     <string name="Tv_SettingsKaraoke">Letras de karaoke</string>
 
+    <!-- Row in the Android TV app's settings: whether a mixtape like the album or playlist that just finished starts by itself when it ends. -->
+    <string name="Tv_SettingsMixtapeAfter">Mixtape al acabar un disco</string>
+
     <!-- Desktop: menu item in the playlist pane that opens the window for making a mood playlist. -->
     <string name="MoodMaker_New">Nueva lista de estado de ánimo…</string>
 

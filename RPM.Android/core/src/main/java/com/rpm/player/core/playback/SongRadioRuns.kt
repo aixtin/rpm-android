@@ -28,6 +28,8 @@ class SongRadioRuns(
     private val scope: CoroutineScope,
     /** The collection on screen, or null while none is loaded. */
     private val collection: () -> Collection?,
+    /** Whether a list that ends goes on as a mixtape ([carryOn]): the person's setting, read when a last song starts. */
+    private val mixtapeAfter: () -> Boolean = { false },
 ) {
     /** One radio: the song it started from, and every song it has queued, oldest first. */
     private class Run(val origin: String) {
@@ -45,7 +47,10 @@ class SongRadioRuns(
 
     fun attach() {
         player.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = topUp()
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                topUp()
+                carryOn()
+            }
         })
     }
 
@@ -77,13 +82,49 @@ class SongRadioRuns(
         }
     }
 
+    /**
+     * The last song of an album, a playlist or a single has started: with [mixtapeAfter] on, a mixtape of songs like
+     * the list is queued after it, so the music carries on instead of stopping. It is a song radio like any other,
+     * named after the list's first song and with the whole list in its history, so it does not play the list again,
+     * and from its first item on it tops itself up as every radio does ([topUp]). Not after a radio's own song, a
+     * station, or a queue set to repeat.
+     */
+    private fun carryOn() {
+        val at = player.currentMediaItemIndex
+        if (at != player.mediaItemCount - 1 || player.repeatMode != Player.REPEAT_MODE_OFF) return
+        val item = player.currentMediaItem ?: return
+        if (radioOf(item) != null) return
+        val ref = TrackRef.parse(item.mediaId) ?: return
+        if (!mixtapeAfter()) return
+        val held = collection() ?: return
+        if (held.shelf != ref.shelf) return
+        val list = (0 until player.mediaItemCount).mapNotNull { TrackRef.parse(player.getMediaItemAt(it).mediaId)?.rpmId }
+        val first = list.firstOrNull() ?: return
+        val name = newRun(first)
+        val run = Run(first).also { r -> list.forEach(r::note) }
+        val mediaId = item.mediaId
+        asking?.cancel()
+        asking = scope.launch {
+            val picks = withContext(Dispatchers.Default) {
+                SongRadio.pick(crateOf(held), ref.rpmId, first, list.toHashSet(), run.history.toList(), SongRadio.AHEAD, Random.Default)
+            }
+            // Only if the list's last song is still the one playing and still the last in the queue.
+            if (player.currentMediaItem?.mediaId != mediaId || player.currentMediaItemIndex != player.mediaItemCount - 1) return@launch
+            runs[name] = run
+            append(name, run, held, picks, SongRadio.AHEAD)
+        }
+    }
+
     /** Appends picks until [SongRadio.AHEAD] songs follow the current one, if the radio is still the one playing. */
     private fun take(name: String, run: Run, held: Collection, picks: List<String>) {
         val current = player.currentMediaItem ?: return
         if (radioOf(current) != name) return
-        val wanted = wanted()
-        if (wanted <= 0) return
+        append(name, run, held, picks, wanted())
+    }
 
+    /** Appends up to [wanted] of [picks] to the queue as songs of the radio [name]. */
+    private fun append(name: String, run: Run, held: Collection, picks: List<String>, wanted: Int) {
+        if (wanted <= 0) return
         val inQueue = (0 until player.mediaItemCount).mapNotNullTo(HashSet()) { TrackRef.parse(player.getMediaItemAt(it).mediaId)?.rpmId }
         val items = ArrayList<MediaItem>()
         for (id in picks) {
@@ -114,6 +155,12 @@ class SongRadioRuns(
         fun newRun(origin: String): String = "$origin#${System.nanoTime()}"
 
         internal fun originOf(name: String): String = name.substringBefore('#')
+
+        /** Where the TV keeps the mixtape-after-a-record setting ([carryOn]): its settings file and key. On unless
+         * the person turns it off. */
+        const val SETTINGS_FILE = "rpm.settings"
+        const val MIXTAPE_AFTER = "mixtape.after"
+        const val MIXTAPE_AFTER_DEFAULT = true
 
         private fun radioOf(item: MediaItem): String? = item.mediaMetadata.extras?.getString(EXTRA_RADIO)
     }

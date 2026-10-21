@@ -74,6 +74,7 @@ class PlaybackService : MediaSessionService() {
     // A play is the signed-in account's. One counted with nobody signed in (the session ended in the
     // second before the reading) is not kept.
     private fun bankPlay(play: TrackCounter.Counted) {
+        ListeningHistory.note(play.ref, play.at)
         val userId = services.auth.session.value?.userId ?: return
         android.util.Log.i(TrackPlaysSync.TAG, "play counted: ${play.ref.mediaId}")
         services.trackPlays.note(userId, play.ref.rpmId, play.at)

@@ -66,7 +66,9 @@ class SongRadioRuns(
         val run = runs.getOrPut(name) { Run(originOf(name)).also { it.note(originOf(name)) } }
 
         if (wanted() <= 0) return
-        val inQueue = (0 until player.mediaItemCount).mapNotNullTo(HashSet()) { TrackRef.parse(player.getMediaItemAt(it).mediaId)?.rpmId }
+        // What is queued, and what was heard lately, which a radio does not play again so soon.
+        val inQueue = (0 until player.mediaItemCount).mapNotNullTo(HashSet()) { TrackRef.parse(player.getMediaItemAt(it).mediaId)?.rpmId } +
+            ListeningHistory.recent(ref.shelf)
         val history = run.history.toList()
         val held = collection() ?: return
         // A radio picks from the collection its song is in; one started on another shelf than the one now on
@@ -106,7 +108,7 @@ class SongRadioRuns(
         asking?.cancel()
         asking = scope.launch {
             val picks = withContext(Dispatchers.Default) {
-                SongRadio.pick(crateOf(held), ref.rpmId, first, list.toHashSet(), run.history.toList(), SongRadio.AHEAD, Random.Default)
+                SongRadio.pick(crateOf(held), ref.rpmId, first, list.toHashSet() + ListeningHistory.recent(ref.shelf), run.history.toList(), SongRadio.AHEAD, Random.Default)
             }
             // Only if the list's last song is still the one playing and still the last in the queue.
             if (player.currentMediaItem?.mediaId != mediaId || player.currentMediaItemIndex != player.mediaItemCount - 1) return@launch

@@ -1,6 +1,7 @@
 package com.rpm.player.tv.ui
 
 import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -23,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -94,7 +96,7 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
             withFrameMillis { }
             val seconds = (playing?.positionAt(SystemClock.uptimeMillis()) ?: 0L) / 1000.0
             now = seconds
-            val piece = held(score.index(seconds) ?: -1, seconds, heardNow)
+            val piece = held(score, score.index(seconds) ?: -1, seconds, heardNow)
             if (piece != at) at = piece
         }
     }
@@ -128,21 +130,30 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
                     }
                     is LyricScore.Piece.Words -> {
                         val sung = part.id == at
-                        val alpha by animateFloatAsState(if (ours && !resting) fade(distance) else 0f, tween(350), label = "line")
+                        val target = if (ours && !resting) fade(distance) else 0f
                         val style = ui(size.value.sp, FontWeight.SemiBold)
-                        if (sung && karaoke) {
+                        // Use the measured timing where a desktop measured this line, else share the time across it.
+                        val spans = if (!karaoke) emptyList() else remember(part.id, measured) {
                             val next = score.parts.getOrNull(part.id + 1)?.seconds ?: Double.POSITIVE_INFINITY
-                            // Use the measured timing where a desktop measured this line, else share the time across it.
-                            val spans = remember(part.id, measured) {
-                                com.rpm.player.core.lyrics.MeasuredLyrics.forLine(measured, piece.line.text, piece.line.seconds)
-                                    ?: LyricTiming.sweep(piece.line.text, piece.line.seconds, next)
-                            }
+                            com.rpm.player.core.lyrics.MeasuredLyrics.forLine(measured, piece.line.text, piece.line.seconds)
+                                ?: LyricTiming.sweep(piece.line.text, piece.line.seconds, next)
+                        }
+                        val fading = remember(part.id) { Animatable(target) }
+                        var wasSung by remember(part.id) { mutableStateOf(sung) }
+                        LaunchedEffect(target, sung) {
+                            // A karaoke line that hands over has already faded its letters back towards rest. It carries
+                            // on from the strength it was showing, so it does not flash white before it fades.
+                            if (karaoke && wasSung && !sung) fading.snapTo(KaraokeLight.overall(spans, now).coerceAtMost(fading.value))
+                            wasSung = sung
+                            fading.animateTo(target, tween(350))
+                        }
+                        if (sung && karaoke) {
                             SweptLine(
                                 text = piece.line.text,
                                 spans = spans,
                                 now = { now },
                                 style = style.copy(textAlign = TextAlign.Center),
-                                modifier = Modifier.fillMaxWidth().graphicsLayer { this.alpha = alpha },
+                                modifier = Modifier.fillMaxWidth().graphicsLayer { this.alpha = fading.value },
                             )
                         } else {
                             Text(
@@ -150,7 +161,7 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
                                 style = style,
                                 color = if (sung) Color.White else SUNG_NOT,
                                 textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().graphicsLayer { this.alpha = alpha },
+                                modifier = Modifier.fillMaxWidth().graphicsLayer { this.alpha = fading.value },
                             )
                         }
                     }
@@ -175,15 +186,29 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
 /**
  * The piece to show at [seconds], given the piece that the time stamps say ([piece]). This is the previous piece
  * while its measured words are still being sung and the words of [piece] have not started. A stamp often comes
- * before the last word of the line before it, and moving on at the stamp would leave that word unlit.
+ * before the last word of the line before it, and moving on at the stamp would leave that word unlit. It is also the
+ * previous piece while the measured words of [piece] are still well ahead.
  */
-private fun held(piece: Int, seconds: Double, heard: List<List<WordSpan>?>): Int {
-    if (piece < 1) return piece
-    val before = heard.getOrNull(piece - 1) ?: return piece
-    if (before.isEmpty() || before.last().to <= seconds) return piece
+private fun held(score: LyricScore, piece: Int, seconds: Double, heard: List<List<WordSpan>?>): Int {
+    if (piece < 0) return piece
     val starts = heard.getOrNull(piece)?.firstOrNull()?.from
-    return if (starts != null && starts <= seconds) piece else piece - 1
+    val before = heard.getOrNull(piece - 1)
+    if (before != null && before.isNotEmpty() && before.last().to > seconds) {
+        return if (starts != null && starts <= seconds) piece else piece - 1
+    }
+    // A line measured to start well after its stamp would stand there unlit, grey, until the voice reaches it. The piece
+    // before it stays up until the light is about to arrive, but never longer than [WAIT_LONGEST] past the stamp, so a
+    // measurement that went astray cannot hold the column back.
+    val stamp = score.parts[piece].seconds
+    if (starts != null && seconds < starts - LEAD && seconds < stamp + WAIT_LONGEST) return piece - 1
+    return piece
 }
+
+/** How long before its first measured word a line takes over, in seconds: about when the light starts to arrive. */
+private const val LEAD = 0.35
+
+/** The longest a line waits past its stamp for its first measured word, in seconds. */
+private const val WAIT_LONGEST = 4.0
 
 /** The opacity for a line, by its distance from the sung piece. */
 private fun fade(distance: Int): Float = when (distance) {

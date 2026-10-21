@@ -230,6 +230,7 @@ private fun PairingPanel(pairing: Pairing, backdrop: Backdrop, onCode: (String) 
                             Ending.Full -> stringResource(R.string.Share_Full, pairing.name)
                             Ending.Lost -> stringResource(R.string.Share_Lost, pairing.name)
                             Ending.Failed -> stringResource(R.string.Tv_Pair_Failed, pairing.name)
+                            Ending.Outdated -> stringResource(R.string.Share_NeedsUpdateThere, pairing.name)
                         }
                     }
                     Text(message, style = ui(28.ts, FontWeight.SemiBold), color = Ink.Words, textAlign = TextAlign.Center)

@@ -13,6 +13,10 @@ import javax.crypto.spec.SecretKeySpec
  */
 object PeerWire {
     const val VERSION = 4
+
+    /** The pairing exchange this TV speaks (the desktop's `SharingProtocol.Pairing`), kept apart from [VERSION]. In
+     * version 2 the six digits never cross the network (see [PairingCode]); a request without it is answered 426. */
+    const val PAIRING = 2
     const val SERVICE_TYPE = "_rpm._tcp."
     const val SESSION_PURPOSE = "rpm-share-session"
 
@@ -118,10 +122,23 @@ object PeerWire {
 // The wire types, with the server's camelCase names.
 
 @Serializable
-data class PairRequest(val version: Int, val publicKey: String, val name: String, val face: String, val nonce: String)
+data class PairRequest(val version: Int, val publicKey: String, val name: String, val face: String, val nonce: String, val pairing: Int)
 
 @Serializable
-data class PairStatus(val state: String = "", val rev: Int = 0, val triesLeft: Int = 0, val expiresIn: Int = 0)
+data class PairStatus(
+    val state: String = "",
+    val rev: Long = 0,
+    val triesLeft: Int = 0,
+    val expiresIn: Int = 0,
+    /** The current round, from 1; a wrong code starts the next one. */
+    val round: Int = 0,
+    /** The computer's commitment to its nonce for the round (base64url); empty from a computer before pairing 2. */
+    val commit: String = "",
+    /** Whether the computer has the TV's nonce for the round, and so shows the digits. */
+    val shown: Boolean = false,
+    /** The computer's nonce for the round (base64url), once the TV has committed to a code. */
+    val reveal: String = "",
+)
 
 @Serializable
 data class PairOffer(
@@ -134,7 +151,13 @@ data class PairOffer(
 )
 
 @Serializable
-data class PairCode(val id: String, val code: String)
+data class PairNonce(val id: String, val round: Int, val nonce: String)
+
+@Serializable
+data class PairCommit(val id: String, val round: Int, val commit: String)
+
+@Serializable
+data class PairOpen(val id: String, val round: Int, val opening: String)
 
 @Serializable
 data class PairId(val id: String)

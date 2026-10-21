@@ -30,7 +30,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.IOException
-import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 
 /** A computer that this TV has paired with. The pairing is stored on the TV. */
@@ -50,15 +49,17 @@ sealed interface Pairing {
     data class Ended(override val name: String, val how: Ending) : Pairing
 }
 
-enum class Ending { Accepted, Declined, Expired, TooManyTries, Full, Lost, Failed }
+/** [Outdated]: the computer runs a build that sends the code in the clear (before pairing version 2), which the TV
+ * does not pair with. */
+enum class Ending { Accepted, Declined, Expired, TooManyTries, Full, Lost, Failed, Outdated }
 
 /** The computer answered 401 (the token is gone because of a restart, expiry, or the computer forgot the TV) or 403. */
 class PeerRefused(val status: Int) : IOException("computer answered $status")
 
 /**
  * The computers that this TV pairs with and reads from. This is the requesting side of the protocol in
- * `RPM.Core/Sharing`. Pairing: the TV offers its key, the computer shows a six-digit code, and the person
- * types the code on the TV. Sessions: the TV signs a challenge with its key and gets a token for 30 minutes.
+ * `RPM.Core/Sharing`. Pairing (version 2, [PeerWire.PAIRING]): the TV offers its key, the computer shows a six-digit
+ * code, and the person types the code on the TV, which never sends it: see [submit]. Sessions: the TV signs a challenge with its key and gets a token for 30 minutes.
  */
 class Computers(
     context: Context,
@@ -101,12 +102,23 @@ class Computers(
     private var attempt = 0
     private var lastTries = 0
 
+    /** Never sent: each round's nonce is derived from it ([PairingCode.askerNonce]). New for each pairing. */
+    private var pairingSeed = PairingCode.nonce()
+
+    /** The newest round seen, with the commitment it was first seen with, for the pairing [attempt]. */
+    private class Round(val attempt: Int, val number: Int, val promised: ByteArray, val nonce: ByteArray)
+
+    private var round: Round? = null
+    private val roundLock = Any()
+
     /** Starts pairing with [computer], and replaces any pairing in progress. */
     fun pair(computer: FoundComputer) {
         pairingJob?.cancel()
         val mine = ++attempt
         pairingWith = computer
         pairingId = ""
+        val seed = PairingCode.nonce().also { pairingSeed = it }
+        synchronized(roundLock) { round = null }
         _pairing.value = Pairing.Asking(computer.name)
         pairingJob = scope.launch(Dispatchers.IO) {
             try {
@@ -118,17 +130,28 @@ class Computers(
                         publicKey = PeerWire.toBase64Url(me.publicKey),
                         name = tvName,
                         face = "",
-                        nonce = PeerWire.toBase64Url(ByteArray(16).also(SecureRandom()::nextBytes)),
+                        // Only computers before pairing version 2 read this nonce; it is sent so that one answers
+                        // with an offer (with no commitment, below) rather than refusing.
+                        nonce = PeerWire.toBase64Url(PairingCode.nonce()),
+                        pairing = PeerWire.PAIRING,
                     )),
                     PairOffer.serializer(),
                     token = null,
                 ) ?: throw IOException("no offer")
                 if (!PeerWire.fromBase64Url(offer.publicKey).contentEquals(computer.publicKey)) return@launch end(mine, Ending.Failed)
                 if (offer.id.isEmpty()) return@launch onStatus(mine, offer.status)
+                // A code with no commitment comes from an older build, which sends the code in the clear. The
+                // request is withdrawn, so the code comes off that screen.
+                if (offer.status.state == "ShowingCode" && offer.status.commit.isEmpty()) {
+                    end(mine, Ending.Outdated)
+                    post<Unit>(computer.base + "/rpm/pair/withdraw", WireJson.encodeToString(PairId.serializer(), PairId(offer.id)), null, token = null)
+                    return@launch
+                }
                 pairingId = offer.id
                 lastTries = offer.status.triesLeft
                 var status = offer.status
                 onStatus(mine, status)
+                join(mine, seed, computer, offer.id, status)
                 // Ask again at once after each answer, because the computer ends a pairing that nobody follows for
                 // 10 s. Failures are retried every second and treated as lost after 15 s.
                 var failingSince = 0L
@@ -145,6 +168,7 @@ class Computers(
                         continue
                     }
                     onStatus(mine, status)
+                    join(mine, seed, computer, offer.id, status)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -154,15 +178,48 @@ class Computers(
         }
     }
 
-    /** Sends the code the person typed. */
+    /**
+     * The code the person typed, in three steps (the desktop's `PeerClient.PairingAsker.TypeAsync`): commit to it,
+     * bound to both keys, and the computer reveals its nonce for the round; check that nonce against the commitment
+     * pinned at the round's first status and work out the digits here; open the commitment only if they agree, or
+     * send an empty opening, which the computer counts as a wrong code. The code itself never crosses the network.
+     */
     fun submit(code: String) {
         val computer = pairingWith ?: return
         val id = pairingId.takeIf { it.isNotEmpty() } ?: return
         val mine = attempt
+        val seed = pairingSeed
+        val round = synchronized(roundLock) { round }?.takeIf { it.attempt == mine } ?: return
         scope.launch(Dispatchers.IO) {
             try {
-                post(computer.base + "/rpm/pair/code", WireJson.encodeToString(PairCode.serializer(), PairCode(id, code)), PairStatus.serializer(), token = null)
-                    ?.let { onStatus(mine, it) }
+                val askerKey = identity().publicKey
+                val ownerKey = computer.publicKey
+                val opening = PairingCode.nonce()
+                val commitment = PairingCode.commitCode(askerKey, ownerKey, opening, code)
+                val committed = post(
+                    computer.base + "/rpm/pair/commit",
+                    WireJson.encodeToString(PairCommit.serializer(), PairCommit(id, round.number, PeerWire.toBase64Url(commitment))),
+                    PairStatus.serializer(),
+                    token = null,
+                ) ?: return@launch
+                val nonce = PeerWire.fromBase64Url(committed.reveal)
+                // The pairing ended or moved on, or the digits were not on that screen yet: nothing is opened.
+                if (committed.round != round.number || nonce == null || nonce.isEmpty()) {
+                    onStatus(mine, committed)
+                    join(mine, seed, computer, id, committed)
+                    return@launch
+                }
+                val agrees = PairingCode.same(PairingCode.commitNonce(nonce), round.promised) &&
+                    PairingCode.same(PairingCode.of(askerKey, ownerKey, round.nonce, nonce), code)
+                post(
+                    computer.base + "/rpm/pair/open",
+                    WireJson.encodeToString(PairOpen.serializer(), PairOpen(id, round.number, if (agrees) PeerWire.toBase64Url(opening) else "")),
+                    PairStatus.serializer(),
+                    token = null,
+                )?.let { opened ->
+                    onStatus(mine, opened)
+                    join(mine, seed, computer, id, opened)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -187,6 +244,38 @@ class Computers(
                 } catch (_: Exception) {
                 }
             }
+        }
+    }
+
+    /**
+     * Sends this TV's nonce when [status] shows a round whose digits are not on the computer's screen yet (the
+     * desktop's `PairingAsker.JoinAsync`). The round is pinned the first time it is seen, with its commitment, and
+     * the nonce goes out only after that commitment has arrived: a machine in the middle must fix its nonce before
+     * it learns the TV's. A later status cannot change a pinned round's commitment.
+     */
+    private suspend fun join(mine: Int, seed: ByteArray, computer: FoundComputer, id: String, status: PairStatus) {
+        if (mine != attempt || status.state != "ShowingCode") return
+        val pinned = synchronized(roundLock) {
+            val now = round?.takeIf { it.attempt == mine }
+            val promised = PeerWire.fromBase64Url(status.commit)
+            if (status.round > (now?.number ?: 0) && promised != null && promised.isNotEmpty()) {
+                Round(mine, status.round, promised, PairingCode.askerNonce(seed, status.round)).also { round = it }
+            } else {
+                now
+            }
+        } ?: return
+        if (pinned.number != status.round || status.shown) return
+        try {
+            post(
+                computer.base + "/rpm/pair/nonce",
+                WireJson.encodeToString(PairNonce.serializer(), PairNonce(id, pinned.number, PeerWire.toBase64Url(pinned.nonce))),
+                PairStatus.serializer(),
+                token = null,
+            )?.let { onStatus(mine, it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Sent again with the next status for the round.
         }
     }
 

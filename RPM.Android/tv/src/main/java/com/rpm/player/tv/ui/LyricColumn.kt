@@ -92,12 +92,21 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
     val heardNow by rememberUpdatedState(heard)
 
     LaunchedEffect(score) {
+        // Where the playhead was when the piece last moved on. The position is carried forward from the controller's
+        // last report and steps back a few hundredths when a new report lands; at a line's edge that flipped the sung
+        // line back and forth between frames, and each flip restarted its fade, so it stood half lit.
+        var movedOnAt = Double.NEGATIVE_INFINITY
         while (true) {
             withFrameMillis { }
             val seconds = (playing?.positionAt(SystemClock.uptimeMillis()) ?: 0L) / 1000.0
             now = seconds
             val piece = held(score, score.index(seconds) ?: -1, seconds, heardNow)
-            if (piece != at) at = piece
+            // Back to an earlier piece only for a real seek, not for the playhead's jitter.
+            val back = piece < at && seconds > movedOnAt - SEEK_BACK
+            if (piece != at && !back) {
+                if (piece > at) movedOnAt = seconds
+                at = piece
+            }
         }
     }
 
@@ -153,7 +162,9 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
                                 spans = spans,
                                 now = { now },
                                 style = style.copy(textAlign = TextAlign.Center),
-                                modifier = Modifier.fillMaxWidth().graphicsLayer { this.alpha = fading.value },
+                                // Whole while it is sung: its letters before the light are already at the other lines'
+                                // strength, so nothing jumps as it takes over, and no fade can leave it half lit.
+                                modifier = Modifier.fillMaxWidth().graphicsLayer { this.alpha = if (target > 0f) 1f else fading.value },
                             )
                         } else {
                             Text(
@@ -203,6 +214,9 @@ private fun held(score: LyricScore, piece: Int, seconds: Double, heard: List<Lis
     if (starts != null && seconds < starts - LEAD && seconds < stamp + WAIT_LONGEST) return piece - 1
     return piece
 }
+
+/** How far the playhead must go back, in seconds, before the column goes back a piece: a seek, not jitter. */
+private const val SEEK_BACK = 0.5
 
 /** How long before its first measured word a line takes over, in seconds: about when the light starts to arrive. */
 private const val LEAD = 0.35
@@ -333,14 +347,16 @@ private class Sweep(private val spans: List<WordSpan>) {
             val end = ends.getOrElse(r) { strength.size }
             val brush = (if (moved) null else brushes[r]) ?: brushFor(first, end).also { brushes[r] = it }
             first = end
+            // The alpha is given: left unsaid, a gradient is drawn at whatever alpha the text's paint was left at, which
+            // after a frame of the line all at rest was 0.42, so a line that had begun to light stood grey.
             if (layout.lineCount == 1) {
-                drawText(layout, brush)
+                drawText(layout, brush, alpha = 1f)
             } else {
                 // Each row has its own gradient, so it is drawn clipped to its own band. The bands meet, and the
                 // outer ones run on past the box, so no ascender or descender is cut.
                 val top = if (r == 0) -size.height else layout.getLineTop(r)
                 val bottom = if (r == layout.lineCount - 1) size.height * 2 else layout.getLineTop(r + 1)
-                clipRect(left = -size.width, top = top, right = size.width * 2, bottom = bottom) { drawText(layout, brush) }
+                clipRect(left = -size.width, top = top, right = size.width * 2, bottom = bottom) { drawText(layout, brush, alpha = 1f) }
             }
         }
     }

@@ -18,8 +18,22 @@ The project is in `RPM.Android/`.
 
 ## Build
 
-You need JDK 17 and the Android SDK (Android Studio installs both). The apps run on Android 9
-(API 28) or later.
+You need JDK 17 or later and the Android SDK with the Android 17 platform (API 37). Android Studio
+installs both. The apps run on Android 9 (API 28) or later.
+
+Gradle has to know where the SDK is. Android Studio writes it into `RPM.Android/local.properties`
+when you open the project. To build from the command line without opening Studio first, set
+`ANDROID_HOME` to the SDK folder, or create `RPM.Android/local.properties` with one line (the file
+is not committed):
+
+```
+sdk.dir=/path/to/Android/sdk
+```
+
+On Windows, write the path with forward slashes or doubled backslashes, for example
+`sdk.dir=C:/Users/you/AppData/Local/Android/Sdk`.
+
+Then build and test:
 
 ```
 cd RPM.Android
@@ -30,7 +44,7 @@ cd RPM.Android
 
 Without the FFmpeg libraries the `ffmpeg` module builds empty, and the apps play the formats Android
 supports itself. To include them, build them with `scripts/build-android-ffmpeg.sh` and set
-`rpm.ffmpegRoot` in `~/.gradle/gradle.properties`.
+`rpm.ffmpegRoot` in `~/.gradle/gradle.properties`. That build also needs NDK 27.2.12479018.
 
 The local library and playback work without an account. The cloud library, catalogue pages and
 recognition need an rpm account.

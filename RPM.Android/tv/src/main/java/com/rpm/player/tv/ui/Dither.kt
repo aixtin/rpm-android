@@ -23,16 +23,30 @@ fun Modifier.dithered(): Modifier = drawWithContent {
     drawRect(NOISE)
 }
 
-private val NOISE: ShaderBrush by lazy {
-    val random = Random(0x5EED)
+/**
+ * The grain of frosted glass, drawn over a glass card's tint: the same kind of noise as [dithered], but strong
+ * enough to be seen ([FROST_LEVELS]), so a card over something already soft (the room) still reads as glass and not
+ * as a flat grey panel.
+ */
+fun Modifier.frosted(): Modifier = drawWithContent {
+    drawContent()
+    drawRect(FROST)
+}
+
+private val NOISE: ShaderBrush by lazy { noise(0x5EED, NOISE_LEVELS) }
+
+private val FROST: ShaderBrush by lazy { noise(0xF205, FROST_LEVELS) }
+
+private fun noise(seed: Int, levels: Int): ShaderBrush {
+    val random = Random(seed)
     val pixels = IntArray(NOISE_TILE * NOISE_TILE) {
         // White lifts a pixel, black lowers it; the alpha is how far, in 255ths.
-        val alpha = random.nextInt(NOISE_LEVELS + 1)
+        val alpha = random.nextInt(levels + 1)
         val white = random.nextBoolean()
         (alpha shl 24) or (if (white) 0xFFFFFF else 0)
     }
     val bitmap = Bitmap.createBitmap(pixels, NOISE_TILE, NOISE_TILE, Bitmap.Config.ARGB_8888)
-    ShaderBrush(ImageShader(bitmap.asImageBitmap(), TileMode.Repeated, TileMode.Repeated))
+    return ShaderBrush(ImageShader(bitmap.asImageBitmap(), TileMode.Repeated, TileMode.Repeated))
 }
 
 /** The noise tile's side, in pixels. */
@@ -40,3 +54,6 @@ private const val NOISE_TILE = 128
 
 /** The most the noise moves a pixel, in 255ths of full white. */
 private const val NOISE_LEVELS = 3
+
+/** The most the frost moves a pixel, in 255ths of full white: a fine grain seen from the sofa. */
+private const val FROST_LEVELS = 14

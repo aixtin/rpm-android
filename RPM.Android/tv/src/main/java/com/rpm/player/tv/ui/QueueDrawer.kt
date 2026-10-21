@@ -7,6 +7,18 @@ import com.rpm.player.core.playback.TrackRef
 import com.rpm.player.core.playback.isUpNext
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -204,6 +216,8 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, room: Dr
     var movedFrom by remember { mutableIntStateOf(0) }
     // Whether OK lifts a row rather than playing it, and the grips are shown.
     var rearranging by remember { mutableStateOf(false) }
+    // The line that says how a song is moved: it slides in when rearranging is turned on and goes again at the next key.
+    var hinting by remember { mutableStateOf(false) }
     val menu = rememberRowMenu()
     val list = rememberLazyListState(initialFirstVisibleItemIndex = (QueueParts.placeOf(parts, playing) - 2).coerceAtLeast(0))
     // The row the drawer gives the focus to, and a count that asks for it again each time it is set. The row is:
@@ -302,7 +316,10 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, room: Dr
                 moving = null
                 reread()
             }
-            rearranging -> rearranging = false
+            rearranging -> {
+                rearranging = false
+                hinting = false
+            }
             else -> onClose()
         }
     }
@@ -357,6 +374,8 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, room: Dr
                 .padding(start = DRAWER_MARGIN, top = DRAWER_MARGIN, bottom = DRAWER_MARGIN)
                 .onPreviewKeyEvent { event ->
                     val key = event.nativeKeyEvent
+                    // The rearrange key turns the hint on as its OK comes up, so the next key down is a new press.
+                    if (hinting && key.action == KeyEvent.ACTION_DOWN) hinting = false
                     if (key.keyCode == KeyEvent.KEYCODE_BACK) return@onPreviewKeyEvent false
                     if (moving == null) {
                         // Right with nothing further right closes the drawer, as it closes the side menu.
@@ -402,15 +421,23 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, room: Dr
             Box(
                 Modifier
                     .matchParentSize()
-                    .background(Ink.Smoke)
-                    .border(1.px, DRAWER_RIM, shape)
-                    .background(GLASS_DIM),
+                    // Frosted rather than smoked: the room behind is soft already, so a blur alone showed no glass.
+                    // A milky tint and a grain make it read as frosted glass; the dim is lighter than the side
+                    // menu's so the frost shows, and the white words stay readable on it.
+                    .background(DRAWER_FROST)
+                    .background(DRAWER_DIM)
+                    .frosted()
+                    .border(1.px, DRAWER_RIM, shape),
             )
             SpotScope(spot, Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize().padding(start = 16.s, top = 20.s, end = 16.s)) {
                     DrawerHead(
                         rearranging = rearranging,
-                        onRearrange = { rearranging = !rearranging },
+                        hinting = hinting,
+                        onRearrange = {
+                            rearranging = !rearranging
+                            hinting = rearranging
+                        },
                         onClose = onClose,
                         keys = Modifier.focusProperties { canFocus = open },
                         closeKey = Modifier.focusRequester(closeKey),
@@ -434,14 +461,14 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, room: Dr
                             when (part) {
                                 is QueuePart.UpNextHeading -> Text(
                                     stringResource(R.string.Viz_Queue),
-                                    style = ui(24.ts, FontWeight.SemiBold),
+                                    style = ui(26.ts, FontWeight.SemiBold),
                                     color = Ink.Words,
                                     maxLines = 1,
                                     modifier = Modifier.padding(start = 10.ds, top = 16.ds, bottom = 4.ds),
                                 )
                                 is QueuePart.ResumeHeading -> Text(
                                     stringResource(R.string.Tv_QueueAfterUpNext),
-                                    style = ui(16.ts, FontWeight.SemiBold),
+                                    style = ui(26.ts, FontWeight.SemiBold),
                                     color = Ink.Artist,
                                     maxLines = 1,
                                     modifier = Modifier.padding(start = 10.ds, top = 14.ds, bottom = 2.ds),
@@ -496,7 +523,7 @@ fun QueueDrawer(player: Player, images: ImageLoader, picture: Backdrop, room: Dr
  * it names that and nothing else.
  */
 @Composable
-private fun DrawerHead(rearranging: Boolean, onRearrange: () -> Unit, onClose: () -> Unit, keys: Modifier, closeKey: Modifier) {
+private fun DrawerHead(rearranging: Boolean, hinting: Boolean, onRearrange: () -> Unit, onClose: () -> Unit, keys: Modifier, closeKey: Modifier) {
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -521,7 +548,14 @@ private fun DrawerHead(rearranging: Boolean, onRearrange: () -> Unit, onClose: (
                 Glyph(Fa.CLOSE, 20.ts, Ink.Key)
             }
         }
-        if (rearranging) {
+        // Slides down from under the title and fades in; on the next key it slides back up as it fades.
+        AnimatedVisibility(
+            visible = hinting,
+            enter = expandVertically(tween(HINT_MS), expandFrom = Alignment.Top) +
+                slideInVertically(tween(HINT_MS)) { -it / 2 } + fadeIn(tween(HINT_MS)),
+            exit = shrinkVertically(tween(HINT_MS), shrinkTowards = Alignment.Top) +
+                slideOutVertically(tween(HINT_MS)) { -it / 2 } + fadeOut(tween(HINT_MS)),
+        ) {
             Text(
                 stringResource(R.string.Tv_QueueRearrangeHint),
                 style = ui(15.ts),
@@ -569,10 +603,15 @@ private val KEY_RIM_LIT = Color(0xE6FFFFFF)
  * (LightSmokeRimBrush), lighter at the top and the bottom than in the middle. */
 private val DRAWER_CORNER = 7.s
 private val DRAWER_MARGIN = 10.s
+private val DRAWER_FROST = Color(0x33FFFFFF)
+private val DRAWER_DIM = Color(0x1A000000)
 private val DRAWER_RIM = Brush.verticalGradient(0f to Ink.SmokeRimTop, 0.5f to Ink.SmokeRimMiddle, 1f to Ink.SmokeRimBottom)
 
 /** How long the drawer takes to slide in or out. The player's push of the picture takes the same time. */
 const val DRAWER_GLIDE_MS = 250
+
+/** How long the rearrange hint and the rows' grips take to slide in or out. */
+private const val HINT_MS = 260
 
 /** How long the room's blurred still takes to fade in over the sharp room when it comes after the drawer. */
 private const val ROOM_FADE_MS = 200
@@ -627,9 +666,18 @@ private fun QueueLine(
             ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (grip || isMoving) {
-                Glyph(Fa.GRIP, 12.tds, Color.White.copy(alpha = if (isMoving) 1f else 0.42f))
-                Spacer(Modifier.width(10.ds))
+            // The grip opens a space at the row's left and fades in as it slides into it, and leaves the same way.
+            AnimatedVisibility(
+                visible = grip || isMoving,
+                enter = expandHorizontally(tween(HINT_MS), expandFrom = Alignment.Start) +
+                    slideInHorizontally(tween(HINT_MS)) { -it } + fadeIn(tween(HINT_MS)),
+                exit = shrinkHorizontally(tween(HINT_MS), shrinkTowards = Alignment.Start) +
+                    slideOutHorizontally(tween(HINT_MS)) { -it } + fadeOut(tween(HINT_MS)),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Glyph(Fa.GRIP, 12.tds, Color.White.copy(alpha = if (isMoving) 1f else 0.42f))
+                    Spacer(Modifier.width(10.ds))
+                }
             }
             Box(Modifier.size(34.ds).clip(RoundedCornerShape(3.ds)).background(Ink.Well)) {
                 if (row.cover != null) {

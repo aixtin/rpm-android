@@ -74,18 +74,19 @@ object KaraokeLight {
 
     /** How strong the line reads as a whole at [now]: the mean of its letters' strengths. A line handing over to the
      * next starts its fade from here, so it carries on at the strength it was showing instead of jumping back up. */
-    fun overall(spans: List<WordSpan>, now: Double): Float {
+    fun overall(spans: List<WordSpan>, now: Double, fades: Boolean = true): Float {
         val into = FloatArray(letters(spans))
         if (into.isEmpty()) return 1f
-        light(spans, now, into)
+        light(spans, now, into, fades)
         return into.average().toFloat()
     }
 
     /** The strength of every letter at [now], from [REST] to 1, written into [into] in reading order. It fills an
-     * array the caller keeps, so a frame allocates nothing. */
-    fun light(spans: List<WordSpan>, now: Double, into: FloatArray) {
+     * array the caller keeps, so a frame allocates nothing. With [fades], the line goes back to rest after its last
+     * word ([LINE_FADE]); without, it stays lit, for a line that is still the one being sung. */
+    fun light(spans: List<WordSpan>, now: Double, into: FloatArray, fades: Boolean = true) {
         // After the last word: the whole line on its way back to rest.
-        val after = if (spans.isEmpty()) 0.0 else now - spans.last().to
+        val after = if (spans.isEmpty() || !fades) 0.0 else now - spans.last().to
         val fade = if (after <= 0) 1f else {
             val t = (after / LINE_FADE).coerceIn(0.0, 1.0)
             (1 - t * t * (3 - 2 * t)).toFloat()

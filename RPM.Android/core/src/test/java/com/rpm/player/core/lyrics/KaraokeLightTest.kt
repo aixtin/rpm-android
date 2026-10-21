@@ -62,6 +62,9 @@ class KaraokeLightTest {
         KaraokeLight.light(spans, 0.5 + KaraokeLight.LINE_FADE / 2, into)
         assertEquals(KaraokeLight.REST + (1 - KaraokeLight.REST) * 0.5f, into[1], 1e-6f)
         KaraokeLight.light(spans, 0.5 + KaraokeLight.LINE_FADE, into)
+        val held = FloatArray(into.size)
+        KaraokeLight.light(spans, 0.5 + KaraokeLight.LINE_FADE * 3, held, fades = false)
+        assertTrue("a line still being sung stays lit after its last word", held.all { it == 1f })
         assertEquals(KaraokeLight.REST, into[1], 1e-6f)
     }
 

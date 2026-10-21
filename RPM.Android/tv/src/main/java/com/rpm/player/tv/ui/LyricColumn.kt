@@ -143,7 +143,7 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
                         LaunchedEffect(target, sung) {
                             // A karaoke line that hands over has already faded its letters back towards rest. It carries
                             // on from the strength it was showing, so it does not flash white before it fades.
-                            if (karaoke && wasSung && !sung) fading.snapTo(KaraokeLight.overall(spans, now).coerceAtMost(fading.value))
+                            if (karaoke && wasSung && !sung) fading.snapTo(KaraokeLight.overall(spans, now, fades = false).coerceAtMost(fading.value))
                             wasSung = sung
                             fading.animateTo(target, tween(350))
                         }
@@ -323,7 +323,9 @@ private class Sweep(private val spans: List<WordSpan>) {
     fun draw(scope: DrawScope, laidOut: TextLayoutResult, now: Double) = with(scope) {
         laid(laidOut)
         val layout = layout ?: return@with
-        KaraokeLight.light(spans, now, strength)
+        // The sung line stays lit after its last word for as long as it is the one being sung: faded back to rest
+        // there, it stood grey through every pause before the next line. It fades when the next line takes over.
+        KaraokeLight.light(spans, now, strength, fades = false)
         val moved = !strength.contentEquals(drawn)
         if (moved) strength.copyInto(drawn)
         var first = 0

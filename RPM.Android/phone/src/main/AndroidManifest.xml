@@ -18,14 +18,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.RpmPhone">
 
-        <!-- Portrait only. Android 16 ignores this on screens 600 dp and wider, where the layout is
-             stretched to fit. The configuration changes listed below are handled by Compose, so a
-             rotation or a keyboard change does not recreate the activity and lose what is on screen. -->
+        <!-- No orientation here: the app asks for one at run time (stage/StageOrientation.kt), portrait
+             while nothing is loaded and the person's own rotation while something is, so a turned phone
+             shows the stage. Android 16 ignores the request on screens 600 dp and wider. The configuration
+             changes listed below are handled by Compose, so a rotation or a keyboard change does not
+             recreate the activity and lose what is on screen. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density">
             <intent-filter>

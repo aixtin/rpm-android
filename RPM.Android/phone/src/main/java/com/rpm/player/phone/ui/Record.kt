@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.vector.PathParser
@@ -215,11 +216,18 @@ enum class Halo { Round }
  * The pressing and its halo stand still, and only the label turns. Real grooves are concentric, so their
  * turning would not show, and a still ring keeps the light where the lamp is.
  *
- * The label shows the rpm mark at its dim strength, pressed in rather than printed on. The album's own label,
- * and a photo of a disc, are not supported yet.
+ * The label is the album's sleeve when [label] is given, as on the iPhone's stage. Otherwise it shows the rpm mark at
+ * its dim strength, pressed in rather than printed on. A photo of a disc is not supported yet.
  */
 @Composable
-fun RecordDisc(diameter: Dp, modifier: Modifier = Modifier, halo: Halo = Halo.Round, spinning: Boolean = true, hue: Int? = VinylPressing.HOUSE_HUE) {
+fun RecordDisc(
+    diameter: Dp,
+    modifier: Modifier = Modifier,
+    halo: Halo = Halo.Round,
+    spinning: Boolean = true,
+    hue: Int? = VinylPressing.HOUSE_HUE,
+    label: ImageBitmap? = null,
+) {
     val context = LocalContext.current
     val pressed by produceState<ImageBitmap?>(null, hue) { value = VinylPressing.press(context, hue) }
     val started = remember { System.nanoTime() }
@@ -234,12 +242,12 @@ fun RecordDisc(diameter: Dp, modifier: Modifier = Modifier, halo: Halo = Halo.Ro
             val angle = if (spinning) angle(after = (now.longValue - started).coerceAtLeast(0) / 1e9) else 0.0
             val orbit = d * WOBBLE
             val wobble = Offset((orbit * cos(Math.toRadians(angle))).toFloat(), (orbit * sin(Math.toRadians(angle))).toFloat())
-            translate(wobble.x, wobble.y) { drawRecord(d, angle.toFloat(), pressed, halo) }
+            translate(wobble.x, wobble.y) { drawRecord(d, angle.toFloat(), pressed, halo, label) }
         }
     }
 }
 
-private fun DrawScope.drawRecord(d: Float, angle: Float, pressed: ImageBitmap?, halo: Halo) {
+private fun DrawScope.drawRecord(d: Float, angle: Float, pressed: ImageBitmap?, halo: Halo, label: ImageBitmap?) {
     val c = center
 
     // The halo. It is a separate shape, not part of the record, so it does not turn with it.
@@ -273,10 +281,25 @@ private fun DrawScope.drawRecord(d: Float, angle: Float, pressed: ImageBitmap?, 
     rotate(angle, pivot = c) {
         val edge = d * LABEL_EDGE
         drawCircle(Color(0xFF0A0A0A), radius = edge / 2, center = c)
-        val markWidth = d * MARK_WIDTH
-        val markHeight = d * MARK_HEIGHT
-        val top = c.y - edge / 2 + d * MARK_DROP
-        drawPath(Wordmark.fitted(Rect(Offset(c.x - markWidth / 2, top), Size(markWidth, markHeight))), Color.White.copy(alpha = 0x40 / 255f))
+        if (label != null) {
+            // The sleeve, filled into the label's circle and cropped to it, as the iPhone fills its label.
+            val circle = Path().apply { addOval(Rect(c, edge / 2)) }
+            clipPath(circle) {
+                val side = min(label.width, label.height)
+                drawImage(
+                    label,
+                    srcOffset = IntOffset((label.width - side) / 2, (label.height - side) / 2),
+                    srcSize = IntSize(side, side),
+                    dstOffset = IntOffset((c.x - edge / 2).toInt(), (c.y - edge / 2).toInt()),
+                    dstSize = IntSize(edge.toInt(), edge.toInt()),
+                )
+            }
+        } else {
+            val markWidth = d * MARK_WIDTH
+            val markHeight = d * MARK_HEIGHT
+            val top = c.y - edge / 2 + d * MARK_DROP
+            drawPath(Wordmark.fitted(Rect(Offset(c.x - markWidth / 2, top), Size(markWidth, markHeight))), Color.White.copy(alpha = 0x40 / 255f))
+        }
         val line = max(0.5f, d / 200)
         drawCircle(Color.Black.copy(alpha = 0x59 / 255f), radius = edge / 2 - line / 2, center = c, style = Stroke(line))
     }

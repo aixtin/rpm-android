@@ -126,6 +126,17 @@ import com.rpm.player.phone.downloads.DownloadsPage
 import com.rpm.player.phone.downloads.LocalPlayable
 import com.rpm.player.phone.downloads.OfflineBar
 import com.rpm.player.phone.downloads.rememberDownloadsHere
+import com.rpm.player.phone.stage.StageOrientation
+import com.rpm.player.phone.stage.StageOrientationFollows
+import com.rpm.player.phone.stage.StageView
+import com.rpm.player.phone.stage.findActivity
+import com.rpm.player.phone.stage.rememberTurned
+import com.rpm.player.core.playback.NowPlaying
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * The first screen of the app, as the iPhone's `RootView`. When signed out, the sign-in gate is shown. When
@@ -461,6 +472,12 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
         tab = if (wasTheRadio) Tab.Radio else Tab.Library
     }
 
+    // The stage: the phone turned while something is loaded. The app turns only while there is something to turn to,
+    // and the player is put away when the stage opens, so turning back shows the tab it was opened from.
+    StageOrientationFollows(loaded = now != null)
+    val onStage = rememberTurned() && now != null && controller != null
+    LaunchedEffect(onStage) { if (onStage) playerUp = false }
+
     // When the connection goes, the person's own records are shown, with the ones not on the phone greyed: a borrowed
     // collection cannot be read without a network. An open page of the own shelf stays open; its record may be on the
     // phone. The settled reading is used, the one the offline bar draws, so a short handover does not move the screen.
@@ -658,6 +675,8 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                 start?.let { controller?.start(it) }
             },
         )
+        // Over everything, the player included: the stage is the whole screen while the phone is turned.
+        Stage(onStage, now, controller, services)
     }
     }
 }
@@ -717,6 +736,23 @@ private fun SongOverlays(
                 ),
                 cancel = DialogKey(stringResource(R.string.Common_Cancel), KeyRole.Cancel) { onAnswered(null) },
             )
+        }
+    }
+}
+
+/**
+ * The stage over the app ([StageView]), faded in and out over a quarter of a second. What it shows is held through the
+ * fade out, so a stage that closes because the music stopped does not go blank before it has faded.
+ */
+@Composable
+private fun Stage(shown: Boolean, now: NowPlaying?, controller: Player?, services: Services) {
+    val activity = LocalContext.current.findActivity()
+    var held by remember { mutableStateOf(now) }
+    if (now != null) held = now
+    AnimatedVisibility(shown, enter = fadeIn(tween(250)), exit = fadeOut(tween(250))) {
+        val playing = held
+        if (playing != null && controller != null) {
+            StageView(playing, controller, services.images, services.audioTap, onPortrait = { activity?.let(StageOrientation::requestPortrait) })
         }
     }
 }

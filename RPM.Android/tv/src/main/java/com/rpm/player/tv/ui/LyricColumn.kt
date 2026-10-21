@@ -85,7 +85,7 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
     val heard = remember(score, measured, karaoke) {
         if (!karaoke) emptyList() else score.parts.map { part ->
             (part.piece as? LyricScore.Piece.Words)?.let { w ->
-                com.rpm.player.core.lyrics.MeasuredLyrics.forLine(measured, w.line.text, w.line.seconds)
+                heardIn(measured, w.line.text, w.line.seconds, score.parts.getOrNull(part.id + 1)?.seconds ?: Double.POSITIVE_INFINITY)
             }
         }
     }
@@ -135,7 +135,7 @@ fun LyricColumn(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Boolean, me
                         // Use the measured timing where a desktop measured this line, else share the time across it.
                         val spans = if (!karaoke) emptyList() else remember(part.id, measured) {
                             val next = score.parts.getOrNull(part.id + 1)?.seconds ?: Double.POSITIVE_INFINITY
-                            com.rpm.player.core.lyrics.MeasuredLyrics.forLine(measured, piece.line.text, piece.line.seconds)
+                            heardIn(measured, piece.line.text, piece.line.seconds, next)
                                 ?: LyricTiming.sweep(piece.line.text, piece.line.seconds, next)
                         }
                         val fading = remember(part.id) { Animatable(target) }
@@ -210,6 +210,23 @@ private const val LEAD = 0.35
 /** The longest a line waits past its stamp for its first measured word, in seconds. */
 private const val WAIT_LONGEST = 4.0
 
+/**
+ * The measured words of the line [text] at [seconds], where they fall in the line's own time: none may end before the
+ * line starts ([STRAY] of slack), and the first may not start after the next piece does ([next]). Words placed
+ * outside it are the aligner's mistake, and swept by them the line stood grey for as long as it was sung; it is then
+ * swept by length instead.
+ */
+private fun heardIn(measured: List<com.rpm.player.core.lyrics.MeasuredLine>, text: String, seconds: Double, next: Double): List<WordSpan>? {
+    val words = com.rpm.player.core.lyrics.MeasuredLyrics.forLine(measured, text, seconds) ?: return null
+    if (words.isEmpty()) return null
+    if (words.last().to < seconds - STRAY) return null
+    if (next.isFinite() && words.first().from > next) return null
+    return words
+}
+
+/** How far before its stamp a line's last measured word may end and still be taken, in seconds. */
+private const val STRAY = 1.0
+
 /** The opacity for a line, by its distance from the sung piece. */
 private fun fade(distance: Int): Float = when (distance) {
     0 -> 1f
@@ -258,11 +275,15 @@ private fun Dots(through: () -> Float, dot: Dp) {
 @Composable
 private fun SweptLine(text: String, spans: List<WordSpan>, now: () -> Double, style: TextStyle, modifier: Modifier) {
     val sweep = remember(text, spans) { Sweep(spans) }
+    // The layout is kept apart from the sweep. The timing can arrive while the line is sung, which makes a new sweep
+    // for the same text; the text is not laid out again for it, so a sweep that waited for its own layout never got
+    // one and the line stood unlit.
+    val laid = remember(text) { arrayOfNulls<TextLayoutResult>(1) }
     BasicText(
         text = text,
         style = style,
-        onTextLayout = sweep::laid,
-        modifier = modifier.drawWithContent { sweep.draw(this, now()) },
+        onTextLayout = { laid[0] = it },
+        modifier = modifier.drawWithContent { laid[0]?.let { sweep.draw(this, it, now()) } },
     )
 }
 
@@ -280,7 +301,7 @@ private class Sweep(private val spans: List<WordSpan>) {
     private var ends = IntArray(0)
     private var brushes = arrayOfNulls<Brush>(0)
 
-    fun laid(result: TextLayoutResult) {
+    private fun laid(result: TextLayoutResult) {
         if (result === layout) return
         layout = result
         val length = result.layoutInput.text.length
@@ -299,7 +320,8 @@ private class Sweep(private val spans: List<WordSpan>) {
         drawn.fill(-1f)
     }
 
-    fun draw(scope: DrawScope, now: Double) = with(scope) {
+    fun draw(scope: DrawScope, laidOut: TextLayoutResult, now: Double) = with(scope) {
+        laid(laidOut)
         val layout = layout ?: return@with
         KaraokeLight.light(spans, now, strength)
         val moved = !strength.contentEquals(drawn)

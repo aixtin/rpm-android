@@ -327,6 +327,8 @@ fun TrackPage(page: PageOf, collection: Collection, images: ImageLoader, dossier
                                 title = q.track.title.orEmpty(),
                                 choices = trackChoices(q, collection, actions, play = { actions.play(queue, i) }),
                                 returnTo = self,
+                                // Lined up with the title, past the row's padding and the number's column.
+                                indent = TRACK_TITLE_INDENT,
                             )
                         },
                         modifier = Modifier.focusProperties { left = playKey }
@@ -399,6 +401,16 @@ private fun pageChoices(page: PageOf, queue: List<Queued>, collection: Collectio
     if (page !is PageOf.OfAlbum || collection.shelf != Shelf.Own) return@buildList
     add(MenuChoice(if (favourite) R.string.Album_UnsetFavorite else R.string.AlbumMenu_Favorite, Fa.HEART, outline = !favourite) { actions.markAlbum(page.album, !favourite) })
     add(MenuStars(R.string.Tv_Album_Rate, stars, cancel = R.string.Common_Cancel, confirm = R.string.Tv_Album_RateConfirm, glyph = Fa.STAR) { picked -> actions.rateAlbum(page.album, picked) })
+}
+
+/**
+ * A record's menu away from its page (Down on the album carousel): Play first, since the page's own Play key is not
+ * there, then the page's menu ([pageChoices]).
+ */
+internal fun albumChoices(album: CloudAlbum, collection: Collection, favourites: AlbumFavourites, ratings: AlbumRatings, actions: TrackActions): List<MenuLine> {
+    val queue = queueOf(collection.shelf, album, collection.cover(album), collection.disc(album))
+    return listOf<MenuLine>(MenuChoice(R.string.AlbumMenu_Play, Fa.PLAY) { actions.play(queue, 0) }) +
+        pageChoices(PageOf.OfAlbum(album), queue, collection, favourites.marks.value.isFavouriteOf(album), ratings.of(album), actions)
 }
 
 /**
@@ -621,6 +633,9 @@ private fun DiscHeading(disc: Int) {
  * corner 6·s. On a list page the number is the position and a second line says the artist and the album
  * (16·s at 0.5). The desktop has 13, 15 and 12.5.
  */
+/** How far a track's title stands in from its row's left edge: the row's padding, the number's column and the gap. */
+private val TRACK_TITLE_INDENT = 12.s + 38.s + 12.s
+
 @Composable
 private fun TrackRow(number: Int, q: Queued, inList: Boolean, onClick: () -> Unit, onMenu: () -> Unit, modifier: Modifier) {
     DeskButton(

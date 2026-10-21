@@ -63,6 +63,11 @@ import com.rpm.player.core.R
 import com.rpm.player.core.Services
 import com.rpm.player.core.radio.RadioStation
 import com.rpm.player.core.room.RoomPalette
+import androidx.compose.ui.graphics.asAndroidBitmap
+import com.rpm.player.core.room.RoomStyle
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.draw.drawWithContent
 import com.rpm.player.core.motion.LocalMotion
 import com.rpm.player.core.motion.Motion
 import com.rpm.player.core.room.RoomPicture
@@ -245,6 +250,10 @@ fun RpmApp(
         }
         val backdropLayer = rememberGraphicsLayer()
         val backdrop = remember(backdropLayer) { Backdrop(backdropLayer) }
+        // The page's picture as last drawn, and the last still of the live room, for what a capture puts under the
+        // screens ([Backdrop.under]).
+        val underLayer = rememberGraphicsLayer()
+        var underStill by remember { mutableStateOf<Pair<Pair<Triple<RoomPalette, RoomStyle, Float>, IntSize>, android.graphics.Bitmap>?>(null) }
         SideEffect { backdrop.ground = roomGround(roomPalette) }
 
         // A screen picked from the side menu opens over home, whatever was open before.
@@ -402,10 +411,34 @@ fun RpmApp(
             if (pictureOn) {
                 // A change of backdrop shows the new one in the old one's place; the surface is not brought back for it.
                 val dim = (1f - Ink.Scrim.alpha) * settings.picture.light
-                if (standing[0] == PageBackground.Room) {
-                    RoomPicture(services.roomStills, reading?.room ?: RoomPalette.FALLBACK, settings.roomStyle, dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize().swapFade { homeIn.value })
-                } else {
-                    BackdropPicture(standing[0], dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize().swapFade { homeIn.value })
+                // Recorded as it is drawn, for what a capture of the screens puts under them ([Backdrop.under]).
+                Box(Modifier.fillMaxSize().drawWithContent {
+                    underLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(underLayer)
+                }) {
+                    if (standing[0] == PageBackground.Room) {
+                        RoomPicture(services.roomStills, reading?.room ?: RoomPalette.FALLBACK, settings.roomStyle, dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize().swapFade { homeIn.value })
+                    } else {
+                        BackdropPicture(standing[0], dim = dim, onShown = { pictureShown = true }, Modifier.fillMaxSize().swapFade { homeIn.value })
+                    }
+                }
+            }
+            // What lies under the screens for a capture of them (a row's menu, the searches): the page's picture as
+            // drawn, or over the live room a still of it, made once per look and size. Without it the capture had a
+            // flat colour where the screens are clear, so a menu's blur did not have the screen's colours.
+            val underPicture = pictureOn && pictureShown
+            val underRoom = !pictureOn && surfaceOn && collectionUp
+            val stillLook = Triple(roomPalette, settings.roomStyle, settings.picture.light)
+            SideEffect {
+                backdrop.under = when {
+                    underPicture -> { _, _ -> underLayer.toImageBitmap().asAndroidBitmap() }
+                    underRoom -> { w, h ->
+                        val size = IntSize((w / UNDER_SHRINK).coerceAtLeast(1), (h / UNDER_SHRINK).coerceAtLeast(1))
+                        underStill?.takeIf { it.first == stillLook to size }?.second
+                            ?: services.roomStills.picture(stillLook.first, stillLook.second, size.width, size.height, dim = stillLook.third)
+                                ?.also { underStill = (stillLook to size) to it }
+                    }
+                    else -> null
                 }
             }
             // The room stretched from an eighth of the screen, and the dimmed page pictures, dithered so their steps do
@@ -872,6 +905,9 @@ private fun Screens(
                             searchState = wallSearch,
                             backdrop = backdrop,
                             mini = mini,
+                            favouriteAlbums = services.albumFavourites,
+                            ratings = services.albumRatings,
+                            actions = trackActions,
                             onOpenAlbum = homeActions.openAlbum,
                         )
                         Route.Search -> SearchScreen(
@@ -1004,6 +1040,10 @@ private fun roomGround(room: RoomPalette): androidx.compose.ui.graphics.Color {
     fun mix(g: Float, t: Float) = ((g + (t - g) * 0.35f) * 0.62f).coerceIn(0f, 1f)
     return androidx.compose.ui.graphics.Color(mix(room.ground.r, room.tint.r), mix(room.ground.g, room.tint.g), mix(room.ground.b, room.tint.b))
 }
+
+/** The still of the live room under a capture is made at this share of the screens' size: it is shrunk and blurred
+ * with them, so more would only cost time in the room's GL context while the menu waits for it. */
+private const val UNDER_SHRINK = 4
 
 /** The stations heard most that home shows, as the desktop's quick selection takes them (top seven). */
 private const val HOME_STATIONS = 7

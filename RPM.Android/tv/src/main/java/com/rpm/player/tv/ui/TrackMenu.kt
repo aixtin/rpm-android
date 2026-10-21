@@ -1,5 +1,8 @@
 package com.rpm.player.tv.ui
 
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.delay
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.ViewCompat
@@ -175,8 +178,11 @@ private val MenuLine.glyph: Char? get() = when (this) {
 @Stable
 class RowMenuState {
     /** What the menu shows: [lines], or, where [naming] is set, the name field of that entry instead. */
-    internal class Opened(val title: String, lines: List<MenuLine>, val returnTo: FocusRequester, val parent: Opened?, val naming: MenuName? = null, val rating: MenuStars? = null) {
+    internal class Opened(val title: String, lines: List<MenuLine>, val returnTo: FocusRequester, val parent: Opened?, val naming: MenuName? = null, val rating: MenuStars? = null, ownIndent: Dp = 0.dp) {
         var lines by mutableStateOf(lines)
+
+        /** How far in from the row's own left edge the card starts ([open]); a submenu keeps its menu's. */
+        val indent: Dp = parent?.indent ?: ownIndent
     }
 
     internal var opened by mutableStateOf<Opened?>(null)
@@ -195,9 +201,11 @@ class RowMenuState {
 
     val isOpen: Boolean get() = opened != null
 
-    fun open(title: String, choices: List<MenuLine>, returnTo: FocusRequester) {
+    /** Opens the menu of the row that has the focus. [indent] lines the card up with something inside the row, as
+     * far in from the row's left edge (before it grows with the focus) as that: a track's title, past its number. */
+    fun open(title: String, choices: List<MenuLine>, returnTo: FocusRequester, indent: Dp = 0.dp) {
         closed = null
-        opened = Opened(title, choices, returnTo, parent = null)
+        opened = Opened(title, choices, returnTo, parent = null, ownIndent = indent)
     }
 
     /** Puts [choices] in place of the open menu's lines. The entry that the remote is on stays selected if it is
@@ -304,7 +312,9 @@ private fun MenuOpening(state: RowMenuState, opened: RowMenuState.Opened, openin
     // Where the focus was when the menu opened: the row that the menu is about, grown (the card is placed beside
     // it) and bare (what is kept sharp).
     val anchor = remember(opening) { owner?.target }
-    val picture = remember(opening) { glass?.let { Backdrop(it.backdrop.layer).apply { ground = it.backdrop.ground } } }
+    val picture = remember(opening) {
+        glass?.let { Backdrop(it.backdrop.layer).apply { ground = it.backdrop.ground; under = it.backdrop.under } }
+    }
     var taken by remember(opening) { mutableStateOf<Boolean?>(if (picture == null) false else null) }
     // The layer under the menu draws its focus bare while the menu is open, until its fade out begins, when the
     // focus goes back to the row and grows on it again ([FocusSpot.quiet]). Before the capture below, which runs later.
@@ -318,8 +328,8 @@ private fun MenuOpening(state: RowMenuState, opened: RowMenuState.Opened, openin
             // The row is drawn bare from the next frame. The picture is taken once that frame has been drawn, so the
             // blur holds no grown row and no glow round it.
             repeat(BARE_FRAMES) { withFrameNanos { } }
-            // Blurred as deep as the side menu's live glass, so the card is that glass.
-            taken = picture.capture(DEEP_RADIUS)
+            // Blurred lightly, so the screen under the menu is still the screen it was opened on.
+            taken = picture.capture(MENU_RADIUS)
         }
     }
     if (glass != null) {
@@ -373,16 +383,19 @@ private fun MenuLayer(
             .onPreviewKeyEvent { it.nativeKeyEvent.downTime < shownAt },
     ) {
         val hole = anchor?.rect?.translate(-origin.x, -origin.y)
+        // Where the card lines up: the row's grown box, or, with an indent, that far in from the row's own left edge.
+        val indent = with(LocalDensity.current) { opened.indent.toPx() }
+        val placeAt = if (indent <= 0f || anchor == null) hole else hole?.copy(left = anchor.bare.left - origin.x + indent)
         val bare = anchor?.takeUnless { lifted }?.let { RoundRect(it.bare.translate(-origin.x, -origin.y), CornerRadius(it.bareCorner)) }
         MenuShade(picture?.takeIf { blurred }, bare, Modifier.fillMaxSize())
         key(opened) {
             val naming = opened.naming
             val rating = opened.rating
             when {
-                naming != null -> NameCard(naming, hole, picture?.takeIf { blurred }, leaving = leaving, onBack = state::back, onClose = state::close)
-                rating != null -> StarsCard(rating, hole, picture?.takeIf { blurred }, leaving = leaving, onBack = state::back, onClose = state::close)
+                naming != null -> NameCard(naming, placeAt, picture?.takeIf { blurred }, leaving = leaving, onBack = state::back, onClose = state::close)
+                rating != null -> StarsCard(rating, placeAt, picture?.takeIf { blurred }, leaving = leaving, onBack = state::back, onClose = state::close)
                 else -> MenuCard(
-                    opened.lines, hole, picture?.takeIf { blurred }, leaving = leaving,
+                    opened.lines, placeAt, picture?.takeIf { blurred }, leaving = leaving,
                     onOpenSub = state::openSub, onOpenName = state::openName, onOpenStars = state::openStars, onBack = state::back, onClose = state::close,
                 )
             }
@@ -484,7 +497,7 @@ private fun MenuCard(
                     // A menu taller than the screen (for example the tuner's countries) scrolls. The entry that
                     // the remote moves to is brought into view.
                     Column(
-                        Modifier.verticalScroll(rememberScrollState()).padding(MENU_INSET),
+                        Modifier.verticalScroll(rememberScrollState()).padding(horizontal = MENU_SIDE, vertical = MENU_INSET),
                         verticalArrangement = Arrangement.spacedBy(2.s),
                     ) {
                         val firstEntry = lines.indexOfFirst { it.isEntry }
@@ -908,6 +921,9 @@ private val ICON_WIDE = 26.s
 private val ICON_GAP = 18.s
 private val ICON_SIZE = 17.ts
 private val MENU_INSET = 8.s
+
+/** The room between the card's sides and an entry's lit box, so the focus does not run up to the glass's edge. */
+private val MENU_SIDE = 14.s
 private val MENU_GAP = 8.px
 
 /** The least room a card keeps from either side of the screen. It equals the screens' own inset. */

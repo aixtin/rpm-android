@@ -78,6 +78,14 @@ class Backdrop(internal val layer: GraphicsLayer) {
      */
     var ground by mutableStateOf(Color.Black)
 
+    /**
+     * What lies under the screens, which their layer does not hold: the page's picture, or a still of the room when
+     * the room is the live surface behind the window. Asked for at each [capture] with the size of the screens'
+     * picture (any size it answers is stretched to that), and drawn under it, so a blur shows the colours that are
+     * really on the screen, not [ground] where the screens are clear. Null, or a null answer, leaves [ground] there.
+     */
+    var under: (suspend (width: Int, height: Int) -> Bitmap?)? = null
+
     /** Renders the screen layer and blurs it. False when the screen could not be rendered, which leaves the
      * last capture in place: a layer that must not show another moment's screen checks this. Cancelling it
      * also leaves the last capture in place. [radius] is the box radius at the shrunk size: [RADIUS] for the
@@ -90,8 +98,24 @@ class Backdrop(internal val layer: GraphicsLayer) {
         } catch (_: Exception) {
             return false
         }
+        val base = try {
+            under?.invoke(full.width, full.height)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
         blurred = withContext(Dispatchers.Default) {
-            val soft = if (full.config == Bitmap.Config.HARDWARE) full.copy(Bitmap.Config.ARGB_8888, false) else full
+            val top = if (full.config == Bitmap.Config.HARDWARE) full.copy(Bitmap.Config.ARGB_8888, false) else full
+            val soft = if (base == null) top else {
+                // The screens over what is under them, as the screen shows them.
+                val merged = Bitmap.createBitmap(top.width, top.height, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(merged)
+                val under = if (base.config == Bitmap.Config.HARDWARE) base.copy(Bitmap.Config.ARGB_8888, false) else base
+                canvas.drawBitmap(under, null, android.graphics.Rect(0, 0, top.width, top.height), android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+                canvas.drawBitmap(top, 0f, 0f, null)
+                merged
+            }
             val small = Bitmap.createScaledBitmap(soft, (soft.width / SHRINK).coerceAtLeast(1), (soft.height / SHRINK).coerceAtLeast(1), true)
             boxBlur(small, radius)
             small.asImageBitmap()
@@ -336,9 +360,12 @@ private const val SHRINK = 6
  * glass ([drawLiveBlur]) blurs more, about 35 px. */
 private const val RADIUS = 3
 
+/** The box radius at the shrunk size for a row's menu: three passes of 2 are about a Gaussian of 2.5 px there, 14 at
+ * full size, so the screen under a menu stays recognisable. */
+const val MENU_RADIUS = 2
+
 /** A box radius at the shrunk size that blurs as much as the live glass ([drawLiveBlur]): three passes of 5 are
- * about a Gaussian of 5.5 px there, 33 at full size. A row's menu takes its picture at this, so its card is the
- * side menu's glass over a screen that the menu cannot blur live ([RowMenu]). */
+ * about a Gaussian of 5.5 px there, 33 at full size. The queue drawer's still of the room is blurred this much. */
 const val DEEP_RADIUS = 5
 
 /** The whole blurred backdrop, stretched over [modifier]'s box, for a layer that covers the screen. */

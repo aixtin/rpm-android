@@ -81,7 +81,7 @@ import kotlinx.coroutines.withContext
  * It never ends: Right after the last record is the first. Left and Right move it one record, over [TICK_MS], so the
  * next record comes round to the front and the one that was there goes back into the arc; a press while it moves
  * adds one more step to where it is going. The covers are stacked by how near the front they are, so the front one
- * is over every other. OK opens the record in front. Which record is in front is kept for as long as the wall is
+ * is over every other. OK opens the record in front, Up opens the letter wheel and Down the record's menu. Which record is in front is kept for as long as the wall is
  * ([state]), so Back from a record comes back to it.
  */
 @Composable
@@ -96,6 +96,7 @@ fun AlbumCarousel(
     focus: FocusRequester,
     up: FocusRequester,
     onOpen: (CloudAlbum) -> Unit,
+    onMenu: (CloudAlbum) -> Unit,
 ) {
     val count = albums.size
     if (count == 0) return
@@ -192,6 +193,8 @@ fun AlbumCarousel(
                     KeyEvent.KEYCODE_DPAD_LEFT -> { if (key.action == KeyEvent.ACTION_DOWN) step(-1); true }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> { if (key.action == KeyEvent.ACTION_DOWN) step(1); true }
                     KeyEvent.KEYCODE_DPAD_UP -> if (letters.isEmpty()) false else { if (key.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0) openLetters(); true }
+                    // Down opens the record's menu, as a held OK does on a row: there is nothing under the covers to go to.
+                    KeyEvent.KEYCODE_DPAD_DOWN -> { if (key.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0) onMenu(albumAt(going)); true }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                         if (key.action == KeyEvent.ACTION_UP) onOpen(albumAt(going))
                         true

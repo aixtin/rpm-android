@@ -101,6 +101,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.ImageLoader
 import com.rpm.player.core.R
+import com.rpm.player.core.library.AlbumFavourites
+import com.rpm.player.core.library.AlbumRatings
 import com.rpm.player.core.library.CloudAlbum
 import com.rpm.player.core.library.Collection
 import com.rpm.player.core.library.LibraryRepository
@@ -200,6 +202,9 @@ fun AlbumsScreen(
     searchState: WallSearchState,
     backdrop: Backdrop,
     mini: MiniPlayerState,
+    favouriteAlbums: AlbumFavourites,
+    ratings: AlbumRatings,
+    actions: TrackActions,
     onOpenAlbum: (CloudAlbum) -> Unit,
 ) {
     var favouritesOn by rememberSaveable { mutableStateOf(false) }
@@ -360,7 +365,11 @@ fun AlbumsScreen(
                     Message(stringResource(if (collection.albums.isEmpty()) R.string.Tv_Library_Empty else R.string.Viz_LibraryNoMatch))
                 }
             } else if (carousel) {
-                AlbumCarousel(shown, order, collection, images, backdrop, mini, carouselState, focus = firstCard, up = orderKey, onOpen = onOpenAlbum)
+                val unknownAlbum = stringResource(R.string.Queue_UnknownAlbum)
+                AlbumCarousel(
+                    shown, order, collection, images, backdrop, mini, carouselState, focus = firstCard, up = orderKey, onOpen = onOpenAlbum,
+                    onMenu = { album -> menu.open(album.album.ifBlank { unknownAlbum }, albumChoices(album, collection, favouriteAlbums, ratings, actions), returnTo = firstCard) },
+                )
             } else {
                 // The row past the last one on screen is decoded into memory as the wall scrolls, at the size a card
                 // asks for (a cell is as wide as its cover), so the covers are there when the row comes into view.

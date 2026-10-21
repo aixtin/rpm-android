@@ -193,6 +193,9 @@ fun PlayerScreen(
     // previous track.
     // What a desktop measured of this track's words; empty until read, and for a track nobody has measured.
     var measured by remember { mutableStateOf(emptyList<com.rpm.player.core.lyrics.MeasuredLine>()) }
+    // How far the sheet is off the record, where the cloud worked it out for this sheet: the lines are shown that much
+    // later (or earlier), and the measured lines are moved with them so they still match ([MeasuredLyrics.shifted]).
+    var offset by remember { mutableStateOf(0.0) }
     // A track's sheet: the one its owner chose on a desktop, where they chose one, else LRCLIB's.
     suspend fun readSheet(mediaId: String, artist: String, title: String, album: String, seconds: Double): LyricSheet =
         com.rpm.player.core.playback.TrackRef.parse(mediaId)?.let { measuredLyrics.chosenSheet(it) }
@@ -204,14 +207,22 @@ fun PlayerScreen(
     // at most [MEASURE_READS] times, while the track is still playing.
     LaunchedEffect(nowPlaying?.mediaId, karaoke, sheet) {
         measured = emptyList()
-        if (!karaoke || !sheet.isSynced) return@LaunchedEffect
+        offset = 0.0
+        if (!sheet.isSynced) return@LaunchedEffect
         val track = nowPlaying?.mediaId?.let(com.rpm.player.core.playback.TrackRef::parse) ?: return@LaunchedEffect
-        measured = withContext(Dispatchers.IO) { measuredLyrics.of(track) }
-        if (com.rpm.player.core.lyrics.MeasuredLyrics.covers(measured, sheet)) return@LaunchedEffect
+        // Read with karaoke off too: the offset moves the plain lines as well, and a listener who is not a supporter
+        // is given the offset alone.
+        suspend fun take() {
+            val answer = withContext(Dispatchers.IO) { measuredLyrics.read(track) }
+            offset = com.rpm.player.core.lyrics.MeasuredLyrics.offsetFor(answer, sheet)
+            if (karaoke) measured = answer.lines
+        }
+        take()
+        if (!karaoke || com.rpm.player.core.lyrics.MeasuredLyrics.covers(measured, sheet)) return@LaunchedEffect
         if (!withContext(Dispatchers.IO) { measuredLyrics.ask(track, sheet) }) return@LaunchedEffect
         repeat(MEASURE_READS) { read ->
             delay(if (read == 0) MEASURE_WAIT_MS else MEASURE_EVERY_MS)
-            measured = withContext(Dispatchers.IO) { measuredLyrics.of(track) }
+            take()
             if (com.rpm.player.core.lyrics.MeasuredLyrics.covers(measured, sheet)) return@LaunchedEffect
         }
     }
@@ -253,6 +264,9 @@ fun PlayerScreen(
         withContext(Dispatchers.IO) { measuredLyrics.ask(track, next) }
     }
     val lyricsKnown = synced && !station
+    // The sheet as the record sings it, and the measured lines moved with it ([offset]).
+    val shownSheet = remember(sheet, offset) { com.rpm.player.core.lyrics.MeasuredLyrics.shifted(sheet, offset) }
+    val shownMeasured = remember(measured, offset) { com.rpm.player.core.lyrics.MeasuredLyrics.shifted(measured, offset) }
     var queueOpen by remember { mutableStateOf(false) }
     // The lyrics as the lyric key has them, and as they are drawn: the queue drawer puts them away while it is
     // open, since the drawer and the lyrics cannot both have the room beside the record, and they come back as
@@ -456,9 +470,9 @@ fun PlayerScreen(
                 // The compact view keeps its record and puts the lyrics beside it. The full view gives the lyrics the screen.
                 view == PegasusView.Centred -> PegasusCentred(
                     nowPlaying, images, vinyl, frame, keysAlpha, seek, row,
-                    lyrics = if (lyricsShown) ({ LyricColumn(sheet, nowPlaying, karaoke, measured, Modifier.fillMaxSize()) }) else null,
+                    lyrics = if (lyricsShown) ({ LyricColumn(shownSheet, nowPlaying, karaoke, shownMeasured, Modifier.fillMaxSize()) }) else null,
                 )
-                lyricsShown -> LyricsView(sheet, nowPlaying, karaoke, measured, keysAlpha, seek, row)
+                lyricsShown -> LyricsView(shownSheet, nowPlaying, karaoke, shownMeasured, keysAlpha, seek, row)
                 else -> PegasusSpread(nowPlaying, images, vinyl, frame, keysAlpha, seek, row, drawerOpen = queueOpen)
             }
         }

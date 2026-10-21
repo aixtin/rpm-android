@@ -196,12 +196,12 @@ class CloudClient(private val http: OkHttpClient, private val auth: AuthClient) 
 
     /** The word timing that a desktop measured for [track]'s lyrics. Empty if nobody has measured it (404). A
      * borrowed track is read from its owner, after the share check. */
-    suspend fun lyricTiming(track: com.rpm.player.core.playback.TrackRef): List<com.rpm.player.core.lyrics.MeasuredLine> = try {
+    suspend fun lyricTiming(track: com.rpm.player.core.playback.TrackRef): com.rpm.player.core.lyrics.MeasuredAnswer = try {
         val answer = get("cloud/lyric-timing/" + escapeSegment(track.rpmId) + track.shelf.query(first = true), com.rpm.player.core.lyrics.MeasuredAnswer.serializer())
         track.shelf.check(answer.owner)
-        answer.lines
+        answer
     } catch (e: ApiException.NotFound) {
-        emptyList()
+        com.rpm.player.core.lyrics.MeasuredAnswer()
     }
 
     /** The lyric sheet the track's owner chose on a desktop ("Try another" or their own file), as LRC; null when

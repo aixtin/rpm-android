@@ -204,6 +204,16 @@ class CloudClient(private val http: OkHttpClient, private val auth: AuthClient) 
         emptyList()
     }
 
+    /** The lyric sheet the track's owner chose on a desktop ("Try another" or their own file), as LRC; null when
+     * they chose none. An answer that names another owner is refused, as for every borrowed read. */
+    suspend fun lyricSheet(track: com.rpm.player.core.playback.TrackRef): String? = try {
+        val answer = get("cloud/lyric-sheet/" + escapeSegment(track.rpmId) + track.shelf.query(first = true), com.rpm.player.core.lyrics.ChosenSheet.serializer())
+        track.shelf.check(answer.owner)
+        answer.lrc.takeIf { it.isNotBlank() }
+    } catch (e: ApiException.NotFound) {
+        null
+    }
+
     /** Requests that [track]'s lyrics are timed from its recording. The server answers at once, and the work
      * continues in the background. */
     suspend fun measureLyrics(track: com.rpm.player.core.playback.TrackRef, ask: com.rpm.player.core.lyrics.MeasureAsk) {

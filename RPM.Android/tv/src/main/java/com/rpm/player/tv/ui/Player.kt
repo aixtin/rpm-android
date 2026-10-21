@@ -193,6 +193,12 @@ fun PlayerScreen(
     // previous track.
     // What a desktop measured of this track's words; empty until read, and for a track nobody has measured.
     var measured by remember { mutableStateOf(emptyList<com.rpm.player.core.lyrics.MeasuredLine>()) }
+    // A track's sheet: the one its owner chose on a desktop, where they chose one, else LRCLIB's.
+    suspend fun readSheet(mediaId: String, artist: String, title: String, album: String, seconds: Double): LyricSheet =
+        com.rpm.player.core.playback.TrackRef.parse(mediaId)?.let { measuredLyrics.chosenSheet(it) }
+            ?: lrcLib.sheet(artist, title, album, seconds)
+    // The next track's media id and sheet, read ahead while this one plays.
+    var ahead by remember { mutableStateOf<Pair<String, LyricSheet>?>(null) }
     // Where no measurement covers this sheet, the cloud is asked to time it off the record (the transcoder takes
     // about half a minute for a song). The answer is read at [MEASURE_WAIT_MS] and then every [MEASURE_EVERY_MS],
     // at most [MEASURE_READS] times, while the track is still playing.
@@ -216,10 +222,35 @@ fun PlayerScreen(
             synced = false
             return@LaunchedEffect
         }
-        sheet = withContext(Dispatchers.IO) {
-            lrcLib.sheet(playing.artist, playing.title, playing.album, playing.durationMs / 1000.0)
+        sheet = ahead?.takeIf { it.first == playing.mediaId }?.second ?: withContext(Dispatchers.IO) {
+            readSheet(playing.mediaId, playing.artist, playing.title, playing.album, playing.durationMs / 1000.0)
         }
         synced = sheet.isSynced
+    }
+    // The next track's sheet, read while this one plays, and with karaoke on its timing asked for now: the server
+    // takes half a minute or more for a song, which used to be the first half minute of the song itself, sung as
+    // plain lines. The sheet is kept for when the track comes up, which saves looking it up again.
+    LaunchedEffect(nowPlaying?.mediaId, karaoke) {
+        if (station) return@LaunchedEffect
+        delay(AHEAD_AFTER_MS)
+        val player = controller ?: return@LaunchedEffect
+        val at = player.nextMediaItemIndex
+        if (at == androidx.media3.common.C.INDEX_UNSET) return@LaunchedEffect
+        val item = player.getMediaItemAt(at)
+        val track = com.rpm.player.core.playback.TrackRef.parse(item.mediaId) ?: return@LaunchedEffect
+        val about = item.mediaMetadata
+        // The sheet is picked by the track's length; without one it could be another sheet than the one looked up
+        // when the track plays.
+        val seconds = (about.durationMs ?: 0L) / 1000.0
+        if (seconds <= 0) return@LaunchedEffect
+        val next = withContext(Dispatchers.IO) {
+            readSheet(item.mediaId, about.artist?.toString().orEmpty(), about.title?.toString().orEmpty(), about.albumTitle?.toString().orEmpty(), seconds)
+        }
+        ahead = item.mediaId to next
+        if (!karaoke || !next.isSynced) return@LaunchedEffect
+        val known = withContext(Dispatchers.IO) { measuredLyrics.of(track) }
+        if (com.rpm.player.core.lyrics.MeasuredLyrics.covers(known, next)) return@LaunchedEffect
+        withContext(Dispatchers.IO) { measuredLyrics.ask(track, next) }
     }
     val lyricsKnown = synced && !station
     var queueOpen by remember { mutableStateOf(false) }
@@ -548,7 +579,7 @@ private fun LyricsView(sheet: LyricSheet, nowPlaying: NowPlaying?, karaoke: Bool
  * lyric key on the left in the spread view, the left keys would run into previous.
  *
  * The heart sets the track playing as a favourite, or takes it off: outlined until it is one, filled after. On a
- * track of a collection someone shares it is drawn as the desktop draws one it cannot set (at 0.35).
+ * track of a collection someone shares there is none.
  *
  * A [station] shows the play key and nothing else: a live stream has no queue, no previous or next and
  * nothing to go back to in the row. The one exception is the cast key while the music is on a Cast device,
@@ -598,12 +629,8 @@ private fun TransportRow(
                     ) {
                         Glyph(Fa.HEART, 14.ts, Ink.Key, regular = !favourite)
                     }
-                } else {
-                    // Drawn as the desktop draws a heart it cannot set (at 0.35): a track of a collection someone shares.
-                    Box(Modifier.size(36.s).graphicsLayer { alpha = 0.35f }, contentAlignment = Alignment.Center) {
-                        Glyph(Fa.HEART, 14.ts, Ink.Key, regular = true)
-                    }
                 }
+                // A track of a collection someone shares has no heart: the marks there are the owner's.
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.s), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.Center)) {
@@ -664,11 +691,15 @@ private fun LyricKey(filled: Boolean, onClick: () -> Unit, modifier: Modifier) {
 }
 
 /** How long the player waits before reading a measurement it asked for, and how many times it reads. */
-// The server finishes most songs in 14 to 42 s, so the first read comes at 20 s and then every 15 s
-// until about two minutes have passed.
-private const val MEASURE_WAIT_MS = 20_000L
-private const val MEASURE_EVERY_MS = 15_000L
-private const val MEASURE_READS = 8
+// The server finishes most songs in 14 to 42 s. A read is one small GET, so the first comes at 8 s and then one
+// every 5 s until about two minutes have passed, so an answer shows within seconds of being there.
+private const val MEASURE_WAIT_MS = 8_000L
+private const val MEASURE_EVERY_MS = 5_000L
+private const val MEASURE_READS = 23
+
+/** How long into a track the player reads the next one's sheet and asks for its timing: after this track's own
+ * lookups, so they do not wait on it. */
+private const val AHEAD_AFTER_MS = 6_000L
 
 private const val LYRIC_BOX = "M2.95,0 H27.05 A2.95,2.95 0 0 1 30,2.95 V26.79 A2.95,2.95 0 0 1 27.05,29.73 H2.95 A2.95,2.95 0 0 1 0,26.79 V2.95 A2.95,2.95 0 0 1 2.95,0 Z "
 private const val LYRIC_QUOTES = "M12.58,14.82 A3.35,3.35 0 1 0 9.78,16.34 C9.78,17.95 8.97,19.42 7.9,20.3 C11.12,19.02 12.19,16.88 12.58,14.82 Z M23.03,14.82 A3.35,3.35 0 1 0 20.22,16.34 C20.22,17.95 19.42,19.42 18.35,20.3 C21.56,19.02 22.63,16.88 23.03,14.82 Z"

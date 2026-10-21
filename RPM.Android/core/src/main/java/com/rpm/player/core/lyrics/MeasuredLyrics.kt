@@ -21,6 +21,10 @@ data class SheetLine(val index: Int, val seconds: Double, val text: String)
 @Serializable
 data class MeasureAsk(val lines: List<SheetLine>)
 
+/** The sheet an owner chose on a desktop (`cloud/lyric-sheet/{rpmId}`). */
+@Serializable
+data class ChosenSheet(val lrc: String = "", val chosenAt: String? = null, val owner: String? = null)
+
 @Serializable
 data class MeasuredAnswer(val lines: List<MeasuredLine> = emptyList(), val owner: String? = null)
 
@@ -39,6 +43,16 @@ class MeasuredLyrics(private val cloud: CloudClient) {
         throw e
     } catch (_: Exception) {
         emptyList()
+    }
+
+    /** The synced sheet the track's owner chose on a desktop, which comes before LRCLIB's first guess; null when
+     * they chose none, it has no times, or the read failed. */
+    suspend fun chosenSheet(track: TrackRef): LyricSheet? = try {
+        cloud.lyricSheet(track)?.let(LyricSheet::parse)?.takeIf { it.isSynced }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
     }
 
     /** Asks the cloud to time [sheet]'s words from [track]'s recording (`cloud/lyric-timing/{rpmId}/measure`).

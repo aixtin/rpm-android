@@ -2,6 +2,9 @@
 <!-- The permissions and the playback service are declared in the manifest of `:core`. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Only the phone chooses a rate by the network (NetworkReach): Wi-Fi or mobile data, and Data Saver. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application
         android:name=".PhoneApplication"
         android:icon="@mipmap/ic_launcher"

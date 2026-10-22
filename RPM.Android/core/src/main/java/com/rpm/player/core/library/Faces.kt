@@ -3,6 +3,7 @@ package com.rpm.player.core.library
 import android.util.Log
 import com.rpm.player.core.auth.AuthClient
 import com.rpm.player.core.cloud.CloudClient
+import com.rpm.player.core.cloud.CloudQuota
 import com.rpm.player.core.cloud.PublicProfile
 import com.rpm.player.core.net.Hosts
 import com.rpm.player.core.net.escapeSegment
@@ -45,25 +46,42 @@ data class Face(val name: String?, val picture: String?, val supporter: Boolean)
  * when signed out. A read that fails leaves it null; the next session asks again. An answer is published only
  * if the account that asked is still the one signed in.
  */
-class OwnFace(private val cloud: CloudClient, private val auth: AuthClient, scope: CoroutineScope) {
+class OwnFace(private val cloud: CloudClient, private val auth: AuthClient, private val scope: CoroutineScope) {
     private val current = MutableStateFlow<Face?>(null)
     val face: StateFlow<Face?> = current.asStateFlow()
+
+    private val held = MutableStateFlow<CloudQuota?>(null)
+
+    /**
+     * The account's whole `cloud/quota` answer, read with the face: the phone's profile shows the storage it uses, and
+     * the rates it offers follow [CloudQuota.unlimited]. Null until read, after a failed read, and when signed out.
+     * Null is "not known", never "free".
+     */
+    val quota: StateFlow<CloudQuota?> = held.asStateFlow()
 
     init {
         scope.launch {
             auth.session.map { it?.userId }.distinctUntilChanged().collectLatest { user ->
                 current.value = null
+                held.value = null
                 if (user != null) read(user)
             }
         }
     }
 
+    /** Asks again if the last read failed, as the iPhone does when the network comes back or the profile is shown. */
+    fun readAgainIfMissing() {
+        val user = auth.session.value?.userId ?: return
+        if (current.value == null || held.value == null) scope.launch { read(user) }
+    }
+
     private suspend fun read(user: String) {
-        val face = try {
+        val (face, quota) = try {
             withContext(Dispatchers.IO) {
                 val profile = async { cloud.ownProfile() }
                 val quota = async { cloud.quota() }
-                Face.of(profile.await(), quota.await().unlimited)
+                val read = quota.await()
+                Face.of(profile.await(), read.unlimited) to read
             }
         } catch (e: CancellationException) {
             throw e
@@ -71,7 +89,10 @@ class OwnFace(private val cloud: CloudClient, private val auth: AuthClient, scop
             Log.w(TAG, "own profile not read: $e")
             return
         }
-        if (auth.session.value?.userId == user) current.value = face
+        if (auth.session.value?.userId == user) {
+            current.value = face
+            held.value = quota
+        }
     }
 
     private companion object {

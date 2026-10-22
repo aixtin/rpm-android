@@ -43,9 +43,18 @@ class TrackSources(
     private val streamLinks: StreamLinks,
     /** Whether the FFmpeg extension is in this build and decodes ALAC, AC-3 and E-AC-3. */
     private val extension: Boolean,
+    /** The rate the app's settings ask the cloud for. */
+    private val rate: StreamRate = StreamRate(PlaybackService.STREAM_KILOBITS),
 ) {
     /** Keyed by media id, so the same track on two shelves is two choices. */
     private val chosen = ConcurrentHashMap<String, TrackSource>()
+
+    /**
+     * The rate each cloud track was first opened at, kept for as long as its source choice. A seek opens the track again
+     * at a byte offset into the file being decoded, and another rate is another file, so a rate changed in the settings
+     * reaches the next track and not the one under way.
+     */
+    private val rates = ConcurrentHashMap<String, Int>()
 
     fun sourceOf(mediaId: String): TrackSource? = chosen[mediaId]
 
@@ -53,11 +62,13 @@ class TrackSources(
      * the new decoder reaches the cloud. */
     fun useCloud(mediaId: String) {
         chosen[mediaId] = TrackSource.Cloud
+        rates.remove(mediaId)
     }
 
     /** Keeps only the choices for [mediaIds] (the item playing and the one Media3 may be loading next). */
     fun keepOnly(mediaIds: Set<String>) {
         chosen.keys.retainAll(mediaIds)
+        rates.keys.retainAll(mediaIds)
     }
 
     /** The source chosen for [ref], choosing now if none is held. */
@@ -79,7 +90,7 @@ class TrackSources(
                     "?s=" + Uri.encode(PeerWire.mediaHandle(token)) +
                     "&t=" + Uri.encode(PeerWire.mediaTicket(token, PeerWire.TRACK_ROUTE, ref.rpmId))
             }
-            TrackSource.Cloud -> streamLinks.resolveBlocking(ref, kilobits = PlaybackService.STREAM_KILOBITS)
+            TrackSource.Cloud -> streamLinks.resolveBlocking(ref, kilobits = rates.getOrPut(ref.mediaId) { rate.kilobits })
         }
     }
 

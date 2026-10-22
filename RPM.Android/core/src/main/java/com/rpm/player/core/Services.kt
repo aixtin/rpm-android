@@ -124,8 +124,12 @@ class Services(context: Context, val levelling: Levelling, tunerOpensOn: com.rpm
     /** The paired computers' catalogues, while they are on the network. */
     val homeCatalogs = HomeCatalogs(computers, scope)
 
+    /** The rate cloud tracks are asked for. The TV leaves it at 320; the phone sets it from its settings and the
+     * network. */
+    val streamRate = com.rpm.player.core.playback.StreamRate(com.rpm.player.core.playback.PlaybackService.STREAM_KILOBITS)
+
     /** Which source each track plays from: a computer or the cloud. */
-    val trackSources = TrackSources(computers, homeCatalogs, streamLinks, extension = TrackSources.extensionDecodes())
+    val trackSources = TrackSources(computers, homeCatalogs, streamLinks, extension = TrackSources.extensionDecodes(), rate = streamRate)
 
     /** The cloud library with the paired computers' tracks merged in by rpmId. */
     val library = LibraryRepository(cloud, auth, homeCatalogs, LibraryCache(context.cacheDir), scope, clock)

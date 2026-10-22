@@ -95,6 +95,25 @@ class AuthClient(
         }
     }
 
+    /**
+     * Asks the accounts service to delete the signed-in account (the iPhone's `AuthClient.deleteAccount`). This is only
+     * the server's part: on [Deletion.Deleted] the caller signs out, as the desktop and the iPhone do.
+     *
+     * @param confirmEmail the address the person typed. The server compares it with the account's verified address,
+     * ignoring case.
+     */
+    suspend fun deleteAccount(confirmEmail: String): Deletion {
+        val token = accessToken() ?: return Deletion.Failed
+        val status = try {
+            wire.deleteAccount(token, confirmEmail)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return Deletion.Failed
+        }
+        return Deletion.of(status)
+    }
+
     private fun replace(next: Session?) {
         current.value = next
         if (next == null) store.clear() else store.write(next)
@@ -109,6 +128,27 @@ class AuthClient(
         refreshToken = said.refreshToken ?: previous?.refreshToken ?: "",
         expiresAtMillis = clock() + (said.expiresIn ?: 3600) * 1000L,
     )
+
+    /** What asking the accounts service to delete the account came to. */
+    enum class Deletion {
+        /** Deleted. The server erases the cloud library within two hours. The caller then signs out. */
+        Deleted,
+
+        /** The typed address is not the account's verified email, or the account has none. Nothing was deleted. */
+        EmailRefused,
+
+        /** The request did not get through, or the server failed. Nothing was deleted. */
+        Failed;
+
+        companion object {
+            /** 2xx is deleted, 400 is a refused address, and any other answer deleted nothing. */
+            fun of(status: Int): Deletion = when (status) {
+                in 200..299 -> Deleted
+                400 -> EmailRefused
+                else -> Failed
+            }
+        }
+    }
 
     companion object {
         /** A token this close to expiring is treated as expired, because a request started now would finish

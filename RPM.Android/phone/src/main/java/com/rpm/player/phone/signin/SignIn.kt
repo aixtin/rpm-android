@@ -61,6 +61,12 @@ class SignIn(
         private set
 
     /**
+     * A message that is not an error, in the same place: the account has been deleted (the iPhone's `model.notice`).
+     * The next sign-in attempt clears it.
+     */
+    var notice by mutableStateOf<Said?>(null)
+
+    /**
      * The address to open in the browser, until an activity has opened it ([opened]). It is held as state,
      * so whichever activity is on screen when the address arrives can open it.
      */
@@ -95,6 +101,7 @@ class SignIn(
         }
         busy = true
         trouble = null
+        notice = null
         scope.launch {
             trouble = try {
                 when (val answer = auth.login(email, password)) {
@@ -127,6 +134,7 @@ class SignIn(
         busy = true
         waitingForBrowser = true
         trouble = null
+        notice = null
         browserShown = false
         val back = MutableStateFlow(false).also { this.back = it }
         val link = MutableStateFlow<String?>(null).also { this.link = it }

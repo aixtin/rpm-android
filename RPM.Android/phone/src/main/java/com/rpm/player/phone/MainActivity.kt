@@ -18,6 +18,9 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.rpm.player.core.playback.PlaybackService
 import com.rpm.player.core.services
 import com.rpm.player.phone.shell.Root
+import com.rpm.player.phone.ui.Ground
+import com.rpm.player.phone.ui.LocalGround
+import androidx.compose.runtime.CompositionLocalProvider
 
 class MainActivity : ComponentActivity() {
     private val app get() = application as PhoneApplication
@@ -39,7 +42,13 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
-        setContent { Root(services, app.settings, app.signIn, controller.value, sittingFrom.intValue) }
+        setContent {
+            // The backdrop every page's ground draws, chosen in the profile. Read here, once for the whole app, so a
+            // choice shows on every page at once.
+            CompositionLocalProvider(LocalGround provides Ground.standing(app.settings.backdrop, app.settings.isGold)) {
+                Root(services, app.settings, app.signIn, controller.value, sittingFrom.intValue)
+            }
+        }
         if (savedInstanceState == null) takeSignInLink(intent)
     }
 

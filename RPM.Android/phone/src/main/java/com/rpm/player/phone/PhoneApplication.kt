@@ -7,6 +7,8 @@ import com.rpm.player.core.Services
 import com.rpm.player.core.SessionOpening
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import com.rpm.player.core.playback.AudioLadder
 import androidx.compose.runtime.setValue
 import com.rpm.player.core.library.AlbumOrdering
 import com.rpm.player.core.library.ArtistOrdering
@@ -17,6 +19,8 @@ import com.rpm.player.phone.art.Logos
 import com.rpm.player.phone.art.Portraits
 import com.rpm.player.phone.library.LibraryMode
 import com.rpm.player.phone.signin.SignIn
+import com.rpm.player.phone.signin.Said
+import com.rpm.player.phone.profile.Account
 
 class PhoneApplication : RpmApplication() {
     /**
@@ -32,6 +36,19 @@ class PhoneApplication : RpmApplication() {
      */
     val signIn: SignIn by lazy {
         SignIn(services.auth, services.scope, bringBack = ::bringToFront)
+    }
+
+    /**
+     * The account and what follows from it: the plan, the network, the rate the player asks for. Made as the app
+     * starts ([onCreate]), before any screen, because the playback service can start without one.
+     */
+    lateinit var account: Account
+        private set
+
+    override fun onCreate() {
+        super.onCreate()
+        account = Account(this, services, settings, onDeleted = { signIn.notice = Said(com.rpm.player.core.R.string.Account_DeletedBody) })
+        account.begin()
     }
 
     /** Artists' photographs, cropped around their faces. Kept for the life of the app. */
@@ -63,10 +80,14 @@ class PhoneApplication : RpmApplication() {
 }
 
 /**
- * The settings the phone keeps for the person. The keys match the ones the iPhone app stores.
+ * The settings the phone keeps for the person. The keys match the ones the iPhone app stores (`Prefs`).
  *
- * Volume levelling (`Prefs`): the defaults match albums and leave classical records alone. The value
- * is read once, as the app starts. There is no screen to change it yet.
+ * Volume levelling: the defaults match albums and leave classical records alone. [levelling] is the one object the
+ * playback service's sink reads for every buffer, so a change in the profile reaches the record already playing, as
+ * on iPhone.
+ *
+ * The rates (`rate.wifi`, `rate.cellular`, `rate.download`) default to the original, as on iPhone: the store limits a
+ * free account whatever is asked for. When the download rate is unset it is the Wi-Fi rate, as on iPhone.
  *
  * The library's order and view (`library.order`, `library.mode`) are kept across launches. They are
  * read on the main thread as the app starts. They are written with `apply()`, which writes in the
@@ -107,15 +128,104 @@ class PhoneSettings(context: Context) {
         prefs.edit().putString(KEY_LIBRARY_MODE, mode.stored).apply()
     }
 
+    /**
+     * Stored by the iPhone's names (`off`, `album`, `track`). A name this build does not know gives the default, not
+     * off: levelling is on unless the person turned it off. The comparison ignores case, because earlier builds wrote
+     * the Kotlin names.
+     */
     val levelling = Levelling(
-        prefs.getString(KEY_MODE, null)?.let { name -> LevelMode.entries.firstOrNull { it.name == name } } ?: LevelMode.Album,
+        prefs.getString(KEY_MODE, null)?.let { name -> LevelMode.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } } ?: LevelMode.Album,
         prefs.getBoolean(KEY_CLASSICAL, false),
     )
+
+    /** The screen's copy of [levelling], so the profile redraws when it changes. */
+    var levelMode by mutableStateOf(levelling.mode)
+        private set
+
+    var levelsClassical by mutableStateOf(levelling.includeClassical)
+        private set
+
+    /** The setting is changed only here, so what is stored and what the sink levels by cannot disagree. */
+    fun changeLevelMode(mode: LevelMode) {
+        levelMode = mode
+        levelling.mode = mode
+        prefs.edit().putString(KEY_MODE, mode.name.lowercase()).apply()
+    }
+
+    fun changeLevelsClassical(on: Boolean) {
+        levelsClassical = on
+        levelling.includeClassical = on
+        prefs.edit().putBoolean(KEY_CLASSICAL, on).apply()
+    }
+
+    /** The rate asked for on a network that costs nothing. [AudioLadder.ORIGINAL] is the untranscoded file. */
+    var rateOnWifi by mutableIntStateOf(prefs.getInt(KEY_RATE_WIFI, AudioLadder.ORIGINAL))
+        private set
+
+    /** The rate asked for on a metered network. */
+    var rateOnCellular by mutableIntStateOf(prefs.getInt(KEY_RATE_CELLULAR, AudioLadder.ORIGINAL))
+        private set
+
+    /**
+     * The rate downloads ask for, on any network. A separate setting, because keeping a record and streaming it are
+     * different choices. It applies to tracks signed after the change; a file already on the phone keeps its rate.
+     */
+    var rateForDownloads by mutableIntStateOf(prefs.getInt(KEY_RATE_DOWNLOAD, rateOnWifi))
+        private set
+
+    fun changeRateOnWifi(kilobits: Int) {
+        rateOnWifi = kilobits
+        prefs.edit().putInt(KEY_RATE_WIFI, kilobits).apply()
+    }
+
+    fun changeRateOnCellular(kilobits: Int) {
+        rateOnCellular = kilobits
+        prefs.edit().putInt(KEY_RATE_CELLULAR, kilobits).apply()
+    }
+
+    fun changeRateForDownloads(kilobits: Int) {
+        rateForDownloads = kilobits
+        prefs.edit().putInt(KEY_RATE_DOWNLOAD, kilobits).apply()
+    }
+
+    /** The id of the chosen backdrop (`backdrop.picture`). Every page's ground reads it, so a change shows at once. */
+    var backdrop by mutableStateOf(prefs.getString(KEY_BACKDROP, null).orEmpty())
+        private set
+
+    fun changeBackdrop(id: String) {
+        backdrop = id
+        prefs.edit().putString(KEY_BACKDROP, id).apply()
+    }
+
+    /**
+     * Whether this launch may stand on the gold pressing (the iPhone's `SupporterGround.isGold`). Read once, before the
+     * first frame. A quota read later only leaves a note for the next launch ([rememberSupporter]), so the picture
+     * never turns gold while somebody is looking at it. Only a sign-in, where nothing of the account is on screen yet,
+     * may change it now ([adoptSupporter]).
+     */
+    var isGold by mutableStateOf(prefs.getBoolean(KEY_GOLD, false))
+        private set
+
+    /** What the cloud just said about the account, kept for the next launch. */
+    fun rememberSupporter(isSupporter: Boolean) {
+        prefs.edit().putBoolean(KEY_GOLD, isSupporter).apply()
+    }
+
+    /** The plan of the account, read at a sign-in: used now, and kept for the next launch. */
+    fun adoptSupporter(isSupporter: Boolean) {
+        rememberSupporter(isSupporter)
+        isGold = isSupporter
+    }
 
     private companion object {
         const val FILE = "rpm.phone"
         const val KEY_MODE = "levelling.mode"
         const val KEY_CLASSICAL = "levelling.classical"
+        const val KEY_RATE_WIFI = "rate.wifi"
+        const val KEY_RATE_CELLULAR = "rate.cellular"
+        const val KEY_RATE_DOWNLOAD = "rate.download"
+        const val KEY_BACKDROP = "backdrop.picture"
+        const val KEY_GOLD = "supporter.gold"
         const val KEY_ORDER = "library.order"
         const val KEY_LIBRARY_MODE = "library.mode"
         const val KEY_ARTIST_ORDER = "library.artistOrder"

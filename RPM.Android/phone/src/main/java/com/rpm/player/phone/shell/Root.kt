@@ -82,6 +82,7 @@ import com.rpm.player.phone.library.AlbumPage
 import com.rpm.player.phone.library.ArtistPage
 import com.rpm.player.phone.library.GenrePage
 import com.rpm.player.phone.radio.RadioPage
+import com.rpm.player.phone.profile.ProfileTab
 import com.rpm.player.phone.player.NowPlayingSheet
 import com.rpm.player.phone.library.LibraryPage
 import com.rpm.player.phone.library.PlaylistPage
@@ -405,7 +406,8 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                     bottomRoom = chrome,
                     onTune = homeActions.onTune,
                 )
-                else -> VinylGround()
+                // The downloads page wires `downloaded` and `onDownloads` once it exists.
+                Tab.Profile -> ProfileTab(services, settings, controller, bottomRoom = chrome, downloaded = 0 to 0L, onDownloads = null)
             }
           }
         }

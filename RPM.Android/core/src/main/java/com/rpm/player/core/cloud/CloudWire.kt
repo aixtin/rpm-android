@@ -226,10 +226,16 @@ data class PublicProfile(
     val supporter: Boolean = false,
 )
 
-/** The part of `cloud/quota` that the TV reads: whether the account's storage is unlimited, which is the case
- * for a supporter. */
+/** `cloud/quota`: what the account's storage holds and allows, and whether it is unlimited, which is the case for a
+ * supporter. The TV reads only [unlimited]; the phone's profile shows the rest. A field the server does not send
+ * reads as 0, and then the quota is the free account's. */
 @Serializable
-data class CloudQuota(val unlimited: Boolean = false)
+data class CloudQuota(
+    val usedBytes: Long = 0,
+    val quotaBytes: Long = 0,
+    val fileCount: Int = 0,
+    val unlimited: Boolean = false,
+)
 
 /** One record that its owner marked, as `cloud/album-marks` returns it, identified by the key its cover is filed under. */
 @Serializable

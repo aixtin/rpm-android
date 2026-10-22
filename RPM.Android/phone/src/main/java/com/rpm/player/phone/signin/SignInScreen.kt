@@ -199,6 +199,7 @@ private fun Line(signIn: SignIn) {
     val trouble = signIn.trouble
     val (text, color) = when {
         trouble != null -> stringResource(trouble.id, *trouble.args.toTypedArray()) to Ink.red
+        signIn.notice != null -> signIn.notice!!.let { stringResource(it.id, *it.args.toTypedArray()) } to Ink.white(0xCC)
         signIn.waitingForBrowser -> stringResource(R.string.Login_WaitingBrowser) to Ink.white(0xCC)
         else -> return
     }

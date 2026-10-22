@@ -50,10 +50,14 @@ interface AuthWire {
     suspend fun collect(sessionId: String, code: String): SocialPoll
     suspend fun refresh(refreshToken: String): RefreshAnswer
     suspend fun revoke(refreshToken: String)
+
+    /** `DELETE auth/account` with the address the person typed, under [accessToken]. Returns the HTTP status. Throws
+     * [IOException] if the service cannot be reached. */
+    suspend fun deleteAccount(accessToken: String, confirmEmail: String): Int
 }
 
-/** [AuthWire] over HTTP. None of these calls sends a bearer token or the app key. They are the calls that
- * get a bearer token, and the accounts service does not read the key. */
+/** [AuthWire] over HTTP. None of these calls sends the app key, which the accounts service does not read. Only
+ * [deleteAccount] sends a bearer token: the others are the calls that get one. */
 class HttpAuthWire(private val http: OkHttpClient) : AuthWire {
 
     /** The poll secret of each social sign-in this wire started, by session id. See [PollSecret]. */
@@ -120,6 +124,16 @@ class HttpAuthWire(private val http: OkHttpClient) : AuthWire {
 
     override suspend fun revoke(refreshToken: String) {
         post("auth/revoke", mapOf("refreshToken" to refreshToken))
+    }
+
+    override suspend fun deleteAccount(accessToken: String, confirmEmail: String): Int {
+        val json = WireJson.encodeToString(JsonObject(mapOf("confirmEmail" to JsonPrimitive(confirmEmail.trim()))))
+        val request = Request.Builder()
+            .url(Hosts.ACCOUNTS + "auth/account")
+            .header("Authorization", "Bearer $accessToken")
+            .delete(json.toRequestBody("application/json".toMediaType()))
+            .build()
+        http.newCall(request).await().use { response -> return response.code }
     }
 
     private class Answer(val code: Int, val body: String)

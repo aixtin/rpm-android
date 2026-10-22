@@ -34,6 +34,7 @@ class AuthClientTest {
             return answer.await()
         }
         override suspend fun revoke(refreshToken: String) { revoked += refreshToken }
+        override suspend fun deleteAccount(accessToken: String, confirmEmail: String) = error("not used")
     }
 
     private val now = 10_000_000L

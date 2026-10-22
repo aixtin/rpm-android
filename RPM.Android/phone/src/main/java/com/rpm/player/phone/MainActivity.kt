@@ -55,6 +55,10 @@ class MainActivity : ComponentActivity() {
                 Root(services, app.settings, app.signIn, controller.value, sittingFrom.intValue)
             }
         }
+        // The window's own background is only for the moment before Compose's first frame. Every screen paints its
+        // own ground over the whole window, so after that it is one more full-screen fill on every frame that
+        // nobody sees.
+        window.decorView.post { window.setBackgroundDrawable(null) }
         if (savedInstanceState == null) takeSignInLink(intent)
     }
 

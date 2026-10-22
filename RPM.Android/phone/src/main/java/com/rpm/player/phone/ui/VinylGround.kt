@@ -1,7 +1,11 @@
 package com.rpm.player.phone.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Paint
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -44,6 +48,12 @@ import kotlin.math.roundToInt
  * The background of the app, as on the iPhone (`VinylGround` in RPMUI/VinylGround.swift). It is the app's
  * colour, the backdrop picture over it, and a 20% black layer over that. Nothing else.
  *
+ * **Drawn in one pass.** The picture is decoded once at the window's size, cropped to what the window shows, with
+ * the shade already on it ([Plates]), and drawn pixel for pixel. Drawn as three layers (the colour, the picture
+ * scaled from about 15 MB, the shade) it was three full-screen fills on every frame, and with the window's own
+ * background the screen was painted four times over before a single cover: on the Titan's GPU that was most of a
+ * frame while a wall scrolled.
+ *
  * The picture is the one chosen in the profile ([LocalGround]); the default is RPaMp's ground. Every page draws its
  * own ground, so the choice is read here and not passed through every page, as the iPhone reads `AppStorage`.
  *
@@ -56,26 +66,30 @@ import kotlin.math.roundToInt
 fun VinylGround(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val choice = LocalGround.current
-    val plate by produceState(Plates.held(choice), choice) { value = Plates.ground(context, choice) }
     val window = LocalWindowInfo.current.containerSize
+    val plate by produceState(Plates.held(choice, window), choice, window) { value = Plates.ground(context, choice, window) }
     var here by remember { mutableStateOf(Offset.Zero) }
 
-    Box(modifier.fillMaxSize().background(Ink.ground).onGloballyPositioned { here = it.positionInRoot() }) {
-        plate?.let { picture ->
-            Canvas(Modifier.fillMaxSize()) {
-                val fill = max(window.width / picture.width.toFloat(), window.height / picture.height.toFloat())
-                val width = (picture.width * fill).roundToInt()
-                val height = (picture.height * fill).roundToInt()
-                drawImage(
-                    picture,
-                    dstOffset = IntOffset(((window.width - width) / 2f - here.x).roundToInt(), (-here.y).roundToInt()),
-                    dstSize = IntSize(width, height),
-                )
-            }
-        }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0x33 / 255f)))
-    }
+    // One pass: the plate already holds the picture at the window's size with the shade on it. Until it is decoded,
+    // the app's colour and the shade.
+    Box(
+        modifier
+            .fillMaxSize()
+            .onGloballyPositioned { here = it.positionInRoot() }
+            .drawBehind {
+                val picture = plate
+                if (picture == null) {
+                    drawRect(Ink.ground)
+                    drawRect(SHADE)
+                } else {
+                    drawImage(picture, topLeft = Offset(-here.x, -here.y))
+                }
+            },
+    )
 }
+
+/** The 20% black over the picture (`VinylGround.swift`). */
+private val SHADE = Color.Black.copy(alpha = 0x33 / 255f)
 
 /**
  * The built-in backdrops, by the id that is stored (`Backdrop.Choice` on iPhone, the desktop's `Backdrop.cs`). The
@@ -124,20 +138,44 @@ enum class Ground(val id: String, @DrawableRes val file: Int, @StringRes val nam
 val LocalGround = staticCompositionLocalOf { Ground.Standard }
 
 /**
- * The background picture, decoded once and kept for the life of the process. The same picture is behind every
- * screen. Only one is kept, not all five: each is about 15 MB decoded, and the person looks at one.
+ * The background picture, decoded once and kept for the life of the process, ready to draw: scaled to cover the
+ * window as the iPhone fills it (centred across, hanging from the top), cropped to the window, with the 20% shade
+ * painted on. The same picture is behind every screen. Only one is kept, not all five: the person looks at one.
  */
 private object Plates {
     @Volatile
-    private var kept: Pair<Ground, ImageBitmap>? = null
+    private var kept: Triple<Ground, IntSize, ImageBitmap>? = null
 
-    fun held(choice: Ground): ImageBitmap? = kept?.takeIf { it.first == choice }?.second
+    fun held(choice: Ground, window: IntSize): ImageBitmap? =
+        kept?.takeIf { it.first == choice && it.second == window }?.third
 
-    suspend fun ground(context: Context, choice: Ground): ImageBitmap? {
-        held(choice)?.let { return it }
-        return withContext(Dispatchers.IO) {
-            BitmapFactory.decodeResource(context.resources, choice.file)?.asImageBitmap()
-        }?.also { kept = choice to it }
+    suspend fun ground(context: Context, choice: Ground, window: IntSize): ImageBitmap? {
+        held(choice, window)?.let { return it }
+        if (window.width <= 0 || window.height <= 0) return null
+        return withContext(Dispatchers.IO) { plate(context, choice.file, window) }?.also { kept = Triple(choice, window, it) }
+    }
+
+    private fun plate(context: Context, @DrawableRes file: Int, window: IntSize): ImageBitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeResource(context.resources, file, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val fill = max(window.width / bounds.outWidth.toFloat(), window.height / bounds.outHeight.toFloat())
+        // Decoded no smaller than it is drawn, in the largest power-of-two step that allows.
+        var sample = 1
+        while (fill * sample * 2 <= 1f) sample *= 2
+        val source = BitmapFactory.decodeResource(context.resources, file, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: return null
+        val scale = max(window.width / source.width.toFloat(), window.height / source.height.toFloat())
+        val out = Bitmap.createBitmap(window.width, window.height, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(out)
+        canvas.translate((window.width - source.width * scale) / 2f, 0f)
+        canvas.scale(scale, scale)
+        canvas.drawBitmap(source, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG))
+        canvas.setMatrix(null)
+        canvas.drawColor(SHADE.toArgb())
+        source.recycle()
+        out.prepareToDraw()
+        return out.asImageBitmap()
     }
 }
 

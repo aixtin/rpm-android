@@ -86,6 +86,9 @@ class PhoneApplication : RpmApplication() {
         return Services(this, settings.levelling, com.rpm.player.core.radio.TunerOpensOn.EveryCountry, copies = downloadBook)
     }
 
+    /** A pause key only pauses: headphones and cars send it to mean pause, never to start the music. */
+    override val pauseKeyResumes: Boolean get() = false
+
     override fun sessionOpening(): SessionOpening = SessionOpening.Player(
         Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_SHOW_PLAYER, true),
     )

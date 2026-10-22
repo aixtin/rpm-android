@@ -472,7 +472,7 @@ class PlaybackService : MediaSessionService() {
         ): Boolean {
             val event = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
                 ?: return false
-            val action = KeyRules.forMediaKey(event.keyCode, session.player.meansToPlay) ?: return false
+            val action = KeyRules.forMediaKey(event.keyCode, session.player.meansToPlay, (application as RpmApplication).pauseKeyResumes) ?: return false
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                 val player = session.player
                 // Play with nothing queued resumes the last queue, where it was.

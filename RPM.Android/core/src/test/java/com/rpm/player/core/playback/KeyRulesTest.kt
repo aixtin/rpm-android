@@ -15,6 +15,12 @@ class KeyRulesTest {
         assertEquals(PlayerAction.PAUSE, KeyRules.forMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE, playing = true))
     }
 
+    // A phone's headphones send MEDIA_PAUSE to mean pause, whatever the player is doing.
+    @Test fun onAPhoneAPauseKeyOnlyPauses() {
+        assertEquals(PlayerAction.PAUSE, KeyRules.forMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE, playing = false, pauseResumes = false))
+        assertEquals(PlayerAction.PAUSE, KeyRules.forMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE, playing = true, pauseResumes = false))
+    }
+
     @Test fun aPlayKeyOnlyPlays() {
         assertEquals(PlayerAction.PLAY, KeyRules.forMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY, playing = true))
     }

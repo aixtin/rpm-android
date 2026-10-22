@@ -16,14 +16,16 @@ object KeyRules {
      * A media key. [playing] is whether the player means to play (`playWhenReady`), not whether sound
      * is coming out, so a pause during buffering still pauses.
      *
-     * `MEDIA_PAUSE` resumes when paused: the Amiko's remote sends its only play button as
-     * `MEDIA_PAUSE`, and a pause that cannot be undone from the remote leaves the person stuck.
+     * `MEDIA_PAUSE` resumes when paused, where [pauseResumes]: the Amiko's remote sends its only play button as
+     * `MEDIA_PAUSE`, and a pause that cannot be undone from the remote leaves the person stuck. A phone says no:
+     * headphones, cars and watches send `MEDIA_PAUSE` to mean pause, and a paused phone, or one still loading the
+     * next song, must not start playing because one did.
      * `MEDIA_CLOSE` is that remote's Stop.
      */
-    fun forMediaKey(keyCode: Int, playing: Boolean): PlayerAction? = when (keyCode) {
+    fun forMediaKey(keyCode: Int, playing: Boolean, pauseResumes: Boolean = true): PlayerAction? = when (keyCode) {
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> if (playing) PlayerAction.PAUSE else PlayerAction.PLAY
         KeyEvent.KEYCODE_MEDIA_PLAY -> PlayerAction.PLAY
-        KeyEvent.KEYCODE_MEDIA_PAUSE -> if (playing) PlayerAction.PAUSE else PlayerAction.PLAY
+        KeyEvent.KEYCODE_MEDIA_PAUSE -> if (playing || !pauseResumes) PlayerAction.PAUSE else PlayerAction.PLAY
         KeyEvent.KEYCODE_MEDIA_STOP, KeyEvent.KEYCODE_MEDIA_CLOSE -> PlayerAction.STOP
         KeyEvent.KEYCODE_MEDIA_NEXT -> PlayerAction.NEXT
         KeyEvent.KEYCODE_MEDIA_PREVIOUS -> PlayerAction.PREVIOUS

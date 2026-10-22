@@ -26,6 +26,10 @@ abstract class RpmApplication : Application() {
     /** How the launcher's now playing card and the media notification open this app. The playback service reads it
      * once, when it builds the media session. */
     abstract fun sessionOpening(): SessionOpening
+
+    /** Whether a media key's Pause plays when the player is paused (`KeyRules.forMediaKey`). The TV's remotes need it;
+     * a phone's headphones and car must not have it. */
+    open val pauseKeyResumes: Boolean get() = true
 }
 
 /** How the system's media surfaces open the app, answered by each app ([RpmApplication.sessionOpening]). */

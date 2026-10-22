@@ -132,10 +132,12 @@ private const val HELD = 0.2f
  * is the artist's name.
  *
  * Not yet implemented: the background that the page shows before a photograph arrives, the stretch on an
- * over-pull, and a song's menu.
+ * over-pull. A song's long press, among the popular songs or under All tracks, opens the song menu ([LocalSongMenu]).
  *
  * @param playing the id of the track playing, which the mark in the margin follows.
- * @param onPlay plays the songs from the one at that index.
+ * @param onPlay plays the songs from the one at that index: a tap on a song.
+ * @param onPlayAll the Play and Shuffle keys: all of these songs, in this order. See [AlbumPage] for why a key and a
+ * row differ.
  */
 @Composable
 fun ArtistPage(
@@ -151,6 +153,7 @@ fun ArtistPage(
     onPlay: (List<CloudTrack>, Int) -> Unit,
     onOpen: (CloudAlbum) -> Unit,
     onBack: () -> Unit,
+    onPlayAll: (List<CloudTrack>) -> Unit = { onPlay(it, 0) },
 ) {
     BackHandler(onBack = onBack)
     val page = rememberBackdrop()
@@ -205,8 +208,8 @@ fun ArtistPage(
                     article?.let { AboutText(it, onOpen = { reading = true }, Modifier.padding(horizontal = 20.dp).padding(top = 10.dp)) }
                     if (shelves.songs.isNotEmpty()) {
                         Keys(
-                            onPlay = { onPlay(shelves.songs.map { it.first }, 0) },
-                            onShuffle = { onPlay(shelves.songs.map { it.first }.shuffled(), 0) },
+                            onPlay = { onPlayAll(shelves.songs.map { it.first }) },
+                            onShuffle = { onPlayAll(shelves.songs.map { it.first }.shuffled()) },
                         )
                     }
                 }
@@ -448,7 +451,7 @@ private fun SongRow(track: CloudTrack, album: CloudAlbum, playing: Boolean, onCl
             .fillMaxWidth()
             .defaultMinSize(minHeight = 56.dp)
             .background(if (pressed) Ink.white(0x24) else Color.Transparent)
-            .clickable(presses, indication = null, role = Role.Button, onClick = onClick)
+            .songPress(track, presses, onClick)
             .padding(start = 8.dp, end = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -99,12 +99,16 @@ class OwnWriter(
      * rather than written from the copy on screen, which can be several changes behind, and written only
      * if it is still that copy. If another device wrote in between, the write is made again on the copy
      * it stored, once (the phone's `writeAgainst`); a second refusal is a failure.
+     *
+     * @param again whether a second copy goes in when the playlist already holds the track: the phone's
+     * `AlreadyThere.addAnother`, which only the person's own answer to the question asks for. Otherwise nothing is
+     * written and the answer is [Filed.AlreadyIn].
      */
-    suspend fun addToPlaylist(rpmId: String, playlistId: String): Filed {
+    suspend fun addToPlaylist(rpmId: String, playlistId: String, again: Boolean = false): Filed {
         val user = auth.session.value?.userId ?: return Filed.Failed
         var current = orNull { cloud.playlists(Shelf.Own) }?.firstOrNull { it.playlistId == playlistId } ?: return Filed.Failed
         repeat(2) {
-            if (rpmId in current.trackIds) {
+            if (!again && rpmId in current.trackIds) {
                 record(user, current)
                 return Filed.AlreadyIn
             }

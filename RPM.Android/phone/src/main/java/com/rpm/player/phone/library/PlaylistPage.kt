@@ -80,7 +80,7 @@ import kotlin.math.roundToInt
  * record the list opens on. The iPhone app uses that cover for the square only, not for the background.
  *
  * Not yet implemented: a generated list's room and frame, the key for another selection of a generated list,
- * adding songs, rearranging a stored list, and a song's menu.
+ * adding songs, and rearranging a stored list. A song's long press opens the song menu ([LocalSongMenu]).
  *
  * @param name the name shown for the list.
  * @param missing how many songs the list names that the library cannot find.
@@ -89,7 +89,8 @@ import kotlin.math.roundToInt
  * record the list opens on.
  * @param coverOf the cover of the record that a song is on. It is used for the song's row.
  * @param playing the id of the track playing, which the mark in the margin follows.
- * @param onPlay plays the list from the song at that index.
+ * @param onPlay plays the list from the song at that index: a tap on a row.
+ * @param onPlayAll the Play key: the whole list from the top. See [AlbumPage] for why a key and a row differ.
  */
 @Composable
 fun PlaylistPage(
@@ -105,6 +106,7 @@ fun PlaylistPage(
     onPlay: (Int) -> Unit,
     onShuffle: () -> Unit,
     onBack: () -> Unit,
+    onPlayAll: () -> Unit = { onPlay(0) },
 ) {
     BackHandler(onBack = onBack)
     val page = rememberBackdrop()
@@ -121,7 +123,7 @@ fun PlaylistPage(
                     val empty = tracks.isEmpty()
                     val square = picture ?: tracks.firstOrNull()?.let(coverOf)
                     ListHead(name, square, holding(tracks.size, seconds(tracks), missing), about(tracks, blurb), if (blurb == null) 2 else 3, images, edge, top) {
-                        GlassButton(onClick = { onPlay(0) }, modifier = Modifier.weight(1f), weight = Weight.Primary, enabled = !empty, height = 50.dp, radius = 14.dp) { style ->
+                        GlassButton(onClick = onPlayAll, modifier = Modifier.weight(1f), weight = Weight.Primary, enabled = !empty, height = 50.dp, radius = 14.dp) { style ->
                             BasicText(Glyph.play, style = icon(15f).copy(color = style.color))
                             Spacer(Modifier.width(10.dp))
                             BasicText(stringResource(R.string.Rpm_Playlist_PlayList), style = display(17f).copy(color = style.color))
@@ -134,7 +136,7 @@ fun PlaylistPage(
                 } else {
                     // A list can hold the same song twice, so each row's key includes its place in the list.
                     itemsIndexed(tracks, key = { at, track -> "${track.rpmId}:$at" }) { at, track ->
-                        ListSongRow(track, coverOf(track), images, playing = track.rpmId == playing) { onPlay(at) }
+                        SongSwipe(track) { ListSongRow(track, coverOf(track), images, playing = track.rpmId == playing) { onPlay(at) } }
                     }
                 }
                 item(key = "foot") { Spacer(Modifier.height(40.dp + bottomRoom)) }
@@ -233,7 +235,7 @@ internal fun ListSongRow(track: CloudTrack, cover: Cover?, images: ImageLoader, 
             .fillMaxWidth()
             .defaultMinSize(minHeight = 56.dp)
             .background(if (pressed) Ink.white(0x24) else Color.Transparent)
-            .clickable(presses, indication = null, role = Role.Button, onClick = onClick)
+            .songPress(track, presses, onClick)
             .padding(start = 8.dp, end = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,

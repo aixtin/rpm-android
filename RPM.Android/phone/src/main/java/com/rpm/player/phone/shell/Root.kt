@@ -42,9 +42,29 @@ import com.rpm.player.core.library.listName
 import com.rpm.player.core.playback.Queued
 import com.rpm.player.core.playback.TrackRef
 import com.rpm.player.core.playback.tune
-import com.rpm.player.core.playback.playQueue
 import com.rpm.player.core.playback.startRadio
 import com.rpm.player.core.playback.queueOf
+import com.rpm.player.core.playback.QueueQuestion
+import com.rpm.player.core.playback.QueueStart
+import com.rpm.player.core.playback.Replacing
+import com.rpm.player.core.playback.Tapped
+import com.rpm.player.core.playback.playNext
+import com.rpm.player.core.playback.replacing
+import com.rpm.player.core.playback.start
+import com.rpm.player.core.library.Filed
+import com.rpm.player.phone.design.ActionSheet
+import com.rpm.player.phone.design.Backdrop
+import com.rpm.player.phone.design.DialogKey
+import com.rpm.player.phone.design.KeyRole
+import com.rpm.player.phone.library.LocalSongMenu
+import com.rpm.player.phone.library.PlaylistPickSheet
+import com.rpm.player.phone.library.SongMenu
+import com.rpm.player.phone.library.SongMenuLayer
+import com.rpm.player.phone.library.SongMenuShown
+import com.rpm.player.phone.library.UpNext
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
+import androidx.compose.ui.platform.LocalContext
 import com.rpm.player.core.playback.rememberNowPlaying
 import com.rpm.player.phone.PhoneSettings
 import com.rpm.player.phone.design.GlassButton
@@ -130,6 +150,48 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
     LaunchedEffect(Unit) { services.radio.refreshRules() }
     val stations = remember(heard, rules) { rules.shown(heard.map { it.station }).take(HOME_STATIONS) }
 
+    // ── what can be done to a song or a record from anywhere ──
+
+    // The question asked before a tap replaces a queue the person changed, while it is on screen (the iPhone's
+    // `queueQuestion`). It is here and not on each page, because a tap on every page reaches [play].
+    var queueQuestion by remember { mutableStateOf<QueueQuestion?>(null) }
+    // The song the playlist picker is open for, or null while it is closed (the iPhone's `filing`). The song and not a
+    // flag, because the picker needs to know only which song it is filing.
+    var filing by remember { mutableStateOf<CloudTrack?>(null) }
+    // Opens the playlist picker for any song, from anywhere: the song menu, and the now playing sheet's own key.
+    val file: (CloudTrack) -> Unit = { filing = it }
+    val favouriteRecords by services.albumFavourites.marks.collectAsStateWithLifecycle()
+    val songMenus = remember { SongMenuShown() }
+    // The long-press menu on a song outside the queue, handed down to every page that lists songs. Made again only when
+    // the collection or the controller changes, because a new menu redraws every row that reads it.
+    val songMenu = remember(collection, controller) {
+        SongMenu(
+            isMarked = { collection.tracksById[it.rpmId]?.tags?.favorite == true },
+            // A song is this account's when its own collection holds it. Another account's songs cannot be marked or
+            // filed by this one.
+            isMine = { collection.shelf == Shelf.Own && collection.tracksById.containsKey(it.rpmId) },
+            upNext = UpNext.Send { track -> controller?.playNext(listOf(queued(collection, track))) },
+            // The writes run in the app's scope, so leaving the page does not cut one off half made.
+            onMark = { track, on -> services.scope.launch { services.ownWriter.mark(track.rpmId, on) } },
+            onFile = file,
+            // A radio replaces the queue without asking, as on iPhone: it is a new thing to listen to, not a list
+            // to keep the old one beside.
+            startRadio = { track -> controller?.startRadio(queued(collection, track)) },
+            shown = songMenus,
+        )
+    }
+    val queueMenu = remember(songMenu) { songMenu.with(UpNext.ItIsTheQueue) }
+
+    // Any list of songs from outside the queue: a record, a list, the marked songs. It replaces the queue, or asks
+    // first if the person changed the songs still to come (the iPhone's `AppModel.play`).
+    fun play(queue: List<Queued>, from: Int, tapped: Tapped) {
+        val player = controller ?: return
+        when (val replacing = player.replacing(queue, from, tapped)) {
+            is Replacing.Clear -> player.start(replacing.start)
+            is Replacing.Asks -> queueQuestion = replacing.question
+        }
+    }
+
     // The record pages' reviews, one wall per record for the life of this collection, and the acts each record's
     // artist line opens.
     val reviewWalls = remember(collection.shelf) { ReviewWalls(services.community) }
@@ -146,8 +208,8 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             images,
             playing,
             bottomRoom = chrome,
-            onPlay = { at -> controller?.playQueue(queue(), at) },
-            onShuffle = { controller?.playQueue(queue().shuffled(), 0) },
+            onPlay = { at -> play(queue(), at, Tapped.Song) },
+            onShuffle = { play(queue().shuffled(), 0, Tapped.List) },
             onBack = onBack,
             collection = collection,
             dossiers = services.dossiers,
@@ -157,6 +219,9 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             classical = services.classicalMarks.isClassical(collection.shelf, album),
             wall = reviewWalls.of(album),
             me = session?.userId,
+            onPlayAll = { play(queue(), 0, Tapped.List) },
+            marked = favouriteRecords.isFavourite(album),
+            onMark = { on -> services.scope.launch { services.albumFavourites.mark(album, on) } },
         )
     }
 
@@ -174,9 +239,10 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             images = images,
             playing = playing,
             bottomRoom = chrome,
-            onPlay = { at -> controller?.playQueue(queue(), at) },
-            onShuffle = { controller?.playQueue(queue().shuffled(), 0) },
+            onPlay = { at -> play(queue(), at, Tapped.Song) },
+            onShuffle = { play(queue().shuffled(), 0, Tapped.List) },
             onBack = onBack,
+            onPlayAll = { play(queue(), 0, Tapped.List) },
         )
     }
 
@@ -194,9 +260,10 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             images,
             playing,
             bottomRoom = chrome,
-            onPlay = { at -> controller?.playQueue(queue(), at) },
-            onShuffle = { controller?.playQueue(queue().shuffled(), 0) },
+            onPlay = { at -> play(queue(), at, Tapped.Song) },
+            onShuffle = { play(queue().shuffled(), 0, Tapped.List) },
             onBack = onBack,
+            onPlayAll = { play(queue(), 0, Tapped.List) },
         )
     }
 
@@ -213,9 +280,10 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             onGrouping = settings::changeTrackGrouping,
             playing = playing,
             bottomRoom = chrome,
-            onPlay = { tracks, at -> controller?.playQueue(tracks.map { queued(collection, it) }, at) },
+            onPlay = { tracks, at -> play(tracks.map { queued(collection, it) }, at, Tapped.Song) },
             onOpen = { push(Step.Record(it.key)) },
             onBack = onBack,
+            onPlayAll = { tracks -> play(tracks.map { queued(collection, it) }, 0, Tapped.List) },
         )
     }
 
@@ -229,7 +297,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             services.artwork,
             bottomRoom = chrome,
             onOpen = { push(Step.Record(it.key)) },
-            onPlay = { tracks -> controller?.playQueue(tracks.map { queued(collection, it) }, 0) },
+            onPlay = { tracks -> play(tracks.map { queued(collection, it) }, 0, Tapped.List) },
             onArtist = { push(Step.Artist(it.name)) },
             onList = { push(Step.Playlist(it.id)) },
             onGenre = { push(Step.Genre(it)) },
@@ -250,7 +318,9 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             list != null -> playlist(list, onBack)
             act != null -> artist(act, push, onBack)
             kind != null -> genre(kind, push, onBack)
-            step == Step.Queue -> QueuePage(queue, sittingFrom, controller, images, bottomRoom = chrome, onBack = onBack)
+            step == Step.Queue -> CompositionLocalProvider(LocalSongMenu provides queueMenu) {
+                QueuePage(queue, sittingFrom, controller, images, bottomRoom = chrome, onBack = onBack)
+            }
             step == Step.Marked && marked != null -> songs(stringResource(R.string.Playlists_FavoriteTracks), marked, onBack)
             else -> root()
         }
@@ -259,7 +329,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
     val homeActions = HomeActions(
         onOpen = { homeOpened = homeOpened + Step.Record(it.key) },
         onOpenList = { homeOpened = homeOpened + Step.Playlist(it.id) },
-        onPlay = { tracks -> controller?.playQueue(tracks.map { queued(collection, it) }, 0) },
+        onPlay = { tracks -> play(tracks.map { queued(collection, it) }, 0, Tapped.List) },
         onRadio = { track -> controller?.startRadio(queued(collection, track)) },
         onTune = { station ->
             controller?.let {
@@ -276,6 +346,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
 
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
+          CompositionLocalProvider(LocalSongMenu provides songMenu) {
             when (tab) {
                 Tab.Library -> AnimatedContent(
                     targetState = opened,
@@ -306,7 +377,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                                 onPlaySong = { hit ->
                                     val album = hit.album
                                     val at = album.tracks.indexOfFirst { it.rpmId == hit.track.rpmId }
-                                    if (at >= 0) controller?.playQueue(queueOf(collection.shelf, album, collection.cover(album), collection.disc(album)), at)
+                                    if (at >= 0) play(queueOf(collection.shelf, album, collection.cover(album), collection.disc(album)), at, Tapped.Song)
                                 },
                             )
                         }
@@ -332,6 +403,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                 )
                 else -> VinylGround()
             }
+          }
         }
         Chrome(
             backdrop,
@@ -356,6 +428,72 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                 // The records are on the library's stack, so the page is pushed there.
                 onAlbum = album?.let { { tab = Tab.Library; opened = listOf(Step.Record(it.key)) } },
                 onClosed = { playerUp = false },
+            )
+        }
+        SongOverlays(
+            services,
+            collection,
+            backdrop,
+            songMenus,
+            filing,
+            onFiled = { filing = null },
+            queueQuestion,
+            onAnswered = { start ->
+                queueQuestion = null
+                start?.let { controller?.start(it) }
+            },
+        )
+    }
+}
+
+/**
+ * What is drawn over everything for a song or a queue: the open song menu, the playlist picker while a song is being
+ * filed (the iPhone's `filing` overlay), and the question asked before a changed queue is replaced (its
+ * `confirmationDialog`). Kept apart from [Shell], which only holds their state.
+ *
+ * @param onAnswered the start the answer to the queue question chose, or null for Cancel.
+ */
+@Composable
+private fun SongOverlays(
+    services: Services,
+    collection: com.rpm.player.core.library.Collection,
+    backdrop: Backdrop,
+    songMenus: SongMenuShown,
+    filing: CloudTrack?,
+    onFiled: () -> Unit,
+    queueQuestion: QueueQuestion?,
+    onAnswered: (QueueStart?) -> Unit,
+) {
+    val context = LocalContext.current
+    filing?.let { track ->
+        key(track.rpmId) {
+            PlaylistPickSheet(
+                track,
+                collection,
+                backdrop,
+                onAdd = { list, song, again ->
+                    when (services.ownWriter.addToPlaylist(song.rpmId, list.storeId, again)) {
+                        Filed.Added -> null
+                        Filed.AlreadyIn -> context.getString(R.string.Rpm_PlaylistPick_AlreadyIn, listName(list.name, context.resources))
+                        Filed.Failed -> context.getString(R.string.Rpm_PlaylistPick_Failed)
+                    }
+                },
+                onClose = onFiled,
+            )
+        }
+    }
+    SongMenuLayer(songMenus, backdrop)
+    queueQuestion?.let { question ->
+        key(question) {
+            ActionSheet(
+                backdrop,
+                stringResource(R.string.Rpm_Queue_DiscardTitle),
+                stringResource(R.string.Rpm_Queue_DiscardMessage),
+                listOf(
+                    DialogKey(stringResource(R.string.Rpm_Queue_Discard), KeyRole.Destructive) { onAnswered(question.discard()) },
+                    DialogKey(stringResource(R.string.Rpm_Queue_PlayNowKeep)) { onAnswered(question.keepQueue()) },
+                ),
+                cancel = DialogKey(stringResource(R.string.Common_Cancel), KeyRole.Cancel) { onAnswered(null) },
             )
         }
     }

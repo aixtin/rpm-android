@@ -86,6 +86,7 @@ import com.rpm.player.phone.design.display
 import com.rpm.player.phone.design.displayBold
 import com.rpm.player.phone.design.dissolvesAtTop
 import com.rpm.player.phone.design.icon
+import com.rpm.player.phone.library.songPress
 import com.rpm.player.phone.design.pt
 import com.rpm.player.phone.design.radiusFor
 import com.rpm.player.phone.design.system
@@ -478,11 +479,19 @@ private fun QuickLine(pick: QuickPick, collection: Collection, images: ImageLoad
         is QuickPick.OfList -> { { actions.onOpenList(pick.list) } }
         is QuickPick.Radio -> { { actions.onRadio(pick.track) } }
     }
+    val presses = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
             .height(QUICK_LINE)
-            .clickable(remember { MutableInteractionSource() }, indication = null, enabled = onClick != null) { onClick?.invoke() },
+            // A song has the song menu on a long press, as on iPhone. A song's radio is not the song, and has none.
+            .then(
+                if (pick is QuickPick.Song) {
+                    Modifier.songPress(pick.track, presses) { onClick?.invoke() }
+                } else {
+                    Modifier.clickable(presses, indication = null, enabled = onClick != null) { onClick?.invoke() }
+                },
+            ),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

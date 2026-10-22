@@ -216,10 +216,13 @@ fun Player.startRadio(song: Queued) {
 fun queueOf(shelf: Shelf, album: CloudAlbum, cover: Cover?, disc: DiscArt?): List<Queued> =
     album.tracks.map { Queued(shelf, it, album.album, album.artist, cover, disc) }
 
-/** Replaces the queue with [queue] and plays it from [startIndex]. */
+/** Replaces the queue with [queue] and plays it from [startIndex]. The list is what the queue was started with
+ * ([QueueStarted]), which a later tap that would replace the queue compares it against. */
 fun Player.playQueue(queue: List<Queued>, startIndex: Int) {
     if (queue.isEmpty()) return
-    setMediaItems(queue.map(::mediaItemOf), startIndex.coerceIn(0, queue.size - 1), /* startPositionMs = */ 0)
+    val items = queue.map(::mediaItemOf)
+    QueueStarted.ids = items.map { it.mediaId }
+    setMediaItems(items, startIndex.coerceIn(0, queue.size - 1), /* startPositionMs = */ 0)
     prepare()
     play()
 }

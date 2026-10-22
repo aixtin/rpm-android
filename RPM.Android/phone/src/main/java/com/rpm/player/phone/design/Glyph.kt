@@ -10,6 +10,9 @@ object Glyph {
     const val play = "\uF04B"
     const val shuffle = "\uF074"
     const val heart = "\uF004"
+
+    // A broken heart, for the menu item that takes a favourite mark off, where iOS shows `heart.slash`.
+    const val unheart = "\uF7A9"
     const val record = "\uF51F"
     const val back = "\uF053"
     const val explicit = "\uF26C"

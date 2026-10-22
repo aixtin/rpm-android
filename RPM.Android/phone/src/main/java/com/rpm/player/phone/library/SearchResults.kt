@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import com.rpm.player.core.R
+import com.rpm.player.core.cloud.CloudTrack
 import com.rpm.player.core.library.CloudAlbum
 import com.rpm.player.core.library.Collection
 import com.rpm.player.core.library.SongSearch
@@ -96,7 +97,7 @@ internal fun SearchResults(
         if (answer.songs.isNotEmpty()) {
             item(key = "songs") { Heading(stringResource(R.string.Album_Tracks)) }
             items(answer.songs, key = { "song:" + it.track.rpmId }) { hit ->
-                Line(hit.album, collection, images, hit.track.title.orEmpty(), hit.track.artist.orEmpty(), mark = hit.track.rpmId == playing, onClick = { onPlay(hit) })
+                Line(hit.album, collection, images, hit.track.title.orEmpty(), hit.track.artist.orEmpty(), mark = hit.track.rpmId == playing, song = hit.track, onClick = { onPlay(hit) })
             }
         }
         if (answer.songs.size >= SongSearch.CEILING) {
@@ -130,13 +131,16 @@ private fun Line(
     line: String,
     mark: Boolean,
     onClick: () -> Unit,
+    song: CloudTrack? = null,
     end: @Composable () -> Unit = {},
 ) {
+    val presses = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 58.dp)
-            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            // A song found has the song menu on a long press; a record found has none, as on iPhone.
+            .then(if (song != null) Modifier.songPress(song, presses, onClick) else Modifier.clickable(presses, indication = null, onClick = onClick))
             .padding(start = 8.dp, end = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,

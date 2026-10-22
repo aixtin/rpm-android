@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -96,7 +97,8 @@ private const val LANDING_MS = 600L
  * holds that song at that place. The queue can change under the page, for example through another controller,
  * or when the player moves on.
  *
- * Not yet implemented: a song's menu.
+ * A song's long press opens the song menu ([LocalSongMenu]), which the app gives this page with no play next
+ * ([UpNext.ItIsTheQueue]): the swipe moves a song up instead. Rearranging has no menu.
  *
  * @param sittingFrom where the session says the sitting begins.
  */
@@ -204,7 +206,7 @@ fun QueuePage(queue: QueueRead, sittingFrom: Int, controller: Player?, images: I
                             .background(if (carried) Ink.white(0x14) else Color.Transparent),
                     ) {
                         if (rearranging) {
-                            Rearranged(row, images, carry, list, onDrop = { drop() })
+                            CompositionLocalProvider(LocalSongMenu provides null) { Rearranged(row, images, carry, list, onDrop = { drop() }) }
                         } else {
                             QueueLine(row, queue.playing, controller, images)
                         }

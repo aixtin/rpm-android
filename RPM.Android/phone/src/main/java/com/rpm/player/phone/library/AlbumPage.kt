@@ -54,6 +54,7 @@ import com.rpm.player.phone.design.display
 import com.rpm.player.phone.design.displayBold
 import com.rpm.player.phone.design.dissolvesAtTop
 import com.rpm.player.phone.design.icon
+import com.rpm.player.phone.design.iconOutline
 import com.rpm.player.phone.design.kicker
 import com.rpm.player.phone.design.rememberBackdrop
 import com.rpm.player.phone.design.scrolled
@@ -100,13 +101,19 @@ internal const val COVER_FRACTION = 0.62f
  * page; on a record two acts made, it opens a menu with both. A record its owner marked classical lists its works
  * with their movements under them.
  *
+ * A song's long press opens the song menu ([LocalSongMenu]), and a song swipes as on iPhone ([SongSwipe]).
+ *
  * @param playing the id of the track playing, which the mark in the margin follows.
- * @param onPlay plays the record from the song at that index.
+ * @param onPlay plays the record from the song at that index: a tap on a row.
  * @param artists the artist pages the artist line opens, in credit order. Empty leaves the line as plain text.
  * @param classical whether the shelf's owner marked the record classical. No default: a record is classical
  * because somebody said so.
  * @param wall the record's reviews, or null where there is no wall to show.
  * @param me the signed-in account, whose own review takes no votes.
+ * @param onPlayAll the Play key: the whole record, from the top. A key and a row differ in what "Play now, keep
+ * queue" adds when the queue was changed: the whole record for the key, the one song for a row.
+ * @param marked whether the record is a favourite. The mark on the **record**, which is not a mark on its songs.
+ * @param onMark puts the mark on the record or takes it off, or null where the page shows no heart.
  */
 @Composable
 fun AlbumPage(
@@ -126,6 +133,9 @@ fun AlbumPage(
     classical: Boolean,
     wall: ReviewWall?,
     me: String?,
+    onPlayAll: () -> Unit = { onPlay(0) },
+    marked: Boolean = false,
+    onMark: ((Boolean) -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val page = rememberBackdrop()
@@ -159,7 +169,9 @@ fun AlbumPage(
             LazyColumn(state = list, modifier = Modifier.fillMaxSize().dissolvesAtTop(top) { list.scrolled() }) {
                 item(key = "header") {
                     Header(
-                        album, cover, images, edge, top, onPlay, onShuffle,
+                        album, cover, images, edge, top, onPlayAll, onShuffle,
+                        marked = marked,
+                        onMark = onMark,
                         artists = artists,
                         onArtist = onArtist,
                         rating = wall?.takeIf { it.ratingCount > 0 }?.let { it.average to it.ratingCount },
@@ -171,7 +183,7 @@ fun AlbumPage(
                     when (line) {
                         is AlbumLine.Disc -> DiscHeading(line.number)
                         is AlbumLine.Work -> WorkHeading(line)
-                        is AlbumLine.Song -> SongRow(line, playing = line.track.rpmId == playing) { onPlay(line.index) }
+                        is AlbumLine.Song -> SongSwipe(line.track) { SongRow(line, playing = line.track.rpmId == playing) { onPlay(line.index) } }
                     }
                 }
                 similar?.takeIf { it.first == album.key && it.second.isNotEmpty() }?.let { (_, row) ->
@@ -225,8 +237,10 @@ private fun Header(
     images: ImageLoader,
     edge: Dp,
     top: Dp,
-    onPlay: (Int) -> Unit,
+    onPlayAll: () -> Unit,
     onShuffle: () -> Unit,
+    marked: Boolean,
+    onMark: ((Boolean) -> Unit)?,
     artists: List<ArtistWallItem>,
     onArtist: (ArtistWallItem) -> Unit,
     rating: Pair<Double, Int>?,
@@ -273,15 +287,21 @@ private fun Header(
         }
         // Above the keys, so it is read before the record is played.
         if (article != null) AboutText(article, onOpen = onRead, Modifier.padding(top = 4.dp))
-        // The play key, and beside it a shuffle key for the same record.
+        // The play key, and beside it a shuffle key for the same record, and the mark on it.
         Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            GlassButton(onClick = { onPlay(0) }, modifier = Modifier.weight(1f), weight = Weight.Primary, height = 50.dp, radius = 14.dp) { style ->
+            GlassButton(onClick = onPlayAll, modifier = Modifier.weight(1f), weight = Weight.Primary, height = 50.dp, radius = 14.dp) { style ->
                 BasicText(Glyph.play, style = icon(15f).copy(color = style.color))
                 Spacer(Modifier.width(10.dp))
                 BasicText(stringResource(R.string.AlbumGrid_PlayAll), style = display(17f).copy(color = style.color))
             }
             GlassButton(onClick = onShuffle, modifier = Modifier.width(56.dp), stretches = false, height = 50.dp, radius = 14.dp, inset = 0.dp) { style ->
                 BasicText(Glyph.shuffle, style = icon(17f).copy(color = style.color))
+            }
+            // The mark on the record goes to the shared wall, so a record loved on the phone is loved on the computer.
+            onMark?.let { mark ->
+                GlassButton(onClick = { mark(!marked) }, modifier = Modifier.width(56.dp), stretches = false, height = 50.dp, radius = 14.dp, inset = 0.dp) { style ->
+                    BasicText(Glyph.heart, style = (if (marked) icon(17f) else iconOutline(17f)).copy(color = style.color))
+                }
             }
         }
         // Only while it is true: the list is then in the order the server sent, and is not shown as the running order.
@@ -408,7 +428,7 @@ private fun SongRow(line: AlbumLine.Song, playing: Boolean, onClick: () -> Unit)
             .fillMaxWidth()
             .defaultMinSize(minHeight = 56.dp)
             .background(if (pressed) Ink.white(0x24) else Color.Transparent)
-            .clickable(presses, indication = null, role = Role.Button, onClick = onClick)
+            .songPress(track, presses, onClick)
             .padding(start = 8.dp, end = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,

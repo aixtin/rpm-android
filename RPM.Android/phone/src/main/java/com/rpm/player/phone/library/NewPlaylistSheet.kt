@@ -15,8 +15,12 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -104,6 +108,8 @@ private val TROUBLE = Color(0xFFFFB4A0)
  * and its own [commit].
  *
  * @param backdrop what the panel's glass blurs: the page under it.
+ * @param bottomRoom how much of the foot of the screen the chrome covers. The panel stops above it, as the iPhone's
+ * stops at the page's foot room, or above the keyboard while it is up, whichever is higher.
  * @param commit does the saving, with the name (trimmed) and the songs picked. It returns a sentence when it failed,
  * shown on the panel, and null when it is done, which closes the panel.
  */
@@ -113,6 +119,7 @@ fun NewPlaylistSheet(
     collection: Collection,
     images: ImageLoader,
     backdrop: Backdrop,
+    bottomRoom: Dp,
     commit: suspend (name: String, tracks: List<CloudTrack>) -> String?,
     onClose: () -> Unit,
 ) {
@@ -177,8 +184,7 @@ fun NewPlaylistSheet(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding()
-                .imePadding()
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars).union(WindowInsets(bottom = bottomRoom)))
                 .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
                 // The panel takes its own taps, so a tap on it does not reach the shade and cancel.
                 .clickable(remember { MutableInteractionSource() }, indication = null) {},

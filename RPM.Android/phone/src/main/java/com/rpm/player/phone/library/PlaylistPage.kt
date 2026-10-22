@@ -237,6 +237,7 @@ fun PlaylistPage(
                 into.collection,
                 images,
                 page,
+                bottomRoom,
                 commit = { _, songs -> into.onAdd(songs) },
                 onClose = { picking = false },
             )

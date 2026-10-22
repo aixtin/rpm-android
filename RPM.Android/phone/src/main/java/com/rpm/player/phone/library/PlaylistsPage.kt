@@ -208,6 +208,7 @@ fun PlaylistsPage(
                 collection,
                 images,
                 page,
+                bottomRoom,
                 commit = { name, tracks -> onMake(name, folder, tracks) },
                 onClose = { making = null },
             )

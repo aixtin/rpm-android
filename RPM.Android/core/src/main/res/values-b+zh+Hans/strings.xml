@@ -6159,4 +6159,10 @@
     <string name="Tv_QueueRearrangeHint">按 OK 拿起歌曲，上下键移动，再按 OK 放下。</string>
     <!-- Row in the Android phone's speaker picker that plays on the phone itself. -->
     <string name="Rpm_Cast_ThisAndroidPhone">这台手机</string>
+
+    <!-- Android phone: title of the dialog that removes one downloaded album from the phone. Rpm_Download_RemoveQuestion says iPhone. -->
+    <string name="Phone_Download_RemoveQuestion">要从手机移除这张专辑吗？它仍会保留在你的云端音乐库中。</string>
+
+    <!-- Android phone: title of the dialog that removes several downloaded albums from the phone. {0} is how many. Rpm_Downloads_RemoveQuestion says iPhone. -->
+    <string name="Phone_Downloads_RemoveQuestion">要从手机移除 %1$s 张专辑吗？它们仍会保留在你的云端音乐库中。</string>
 </resources>

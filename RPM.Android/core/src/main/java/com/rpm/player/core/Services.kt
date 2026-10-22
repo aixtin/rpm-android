@@ -69,7 +69,13 @@ import java.io.File
  * [levelling] is the app's volume levelling setting, which the playback service's sink reads for every
  * buffer. Each app keeps it with its own settings and hands that same object over here, so a change in
  * the settings reaches the record that is playing. */
-class Services(context: Context, val levelling: Levelling, tunerOpensOn: com.rpm.player.core.radio.TunerOpensOn) {
+class Services(
+    context: Context,
+    val levelling: Levelling,
+    tunerOpensOn: com.rpm.player.core.radio.TunerOpensOn,
+    /** The tracks downloaded to this device, which play from their files. The phone's downloads; none on the TV. */
+    copies: com.rpm.player.core.playback.LocalCopies = com.rpm.player.core.playback.LocalCopies.None,
+) {
     private val clock: () -> Long = System::currentTimeMillis
 
     /** Lives as long as the process: the library load and the session watch run here. */
@@ -129,7 +135,7 @@ class Services(context: Context, val levelling: Levelling, tunerOpensOn: com.rpm
     val streamRate = com.rpm.player.core.playback.StreamRate(com.rpm.player.core.playback.PlaybackService.STREAM_KILOBITS)
 
     /** Which source each track plays from: a computer or the cloud. */
-    val trackSources = TrackSources(computers, homeCatalogs, streamLinks, extension = TrackSources.extensionDecodes(), rate = streamRate)
+    val trackSources = TrackSources(computers, homeCatalogs, streamLinks, extension = TrackSources.extensionDecodes(), rate = streamRate, copies = copies)
 
     /** The cloud library with the paired computers' tracks merged in by rpmId. */
     val library = LibraryRepository(cloud, auth, homeCatalogs, LibraryCache(context.cacheDir), scope, clock)

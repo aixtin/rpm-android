@@ -6159,4 +6159,10 @@
     <string name="Tv_QueueRearrangeHint">OK nimmt einen Titel auf, Hoch und Runter verschieben ihn, OK legt ihn ab.</string>
     <!-- Row in the Android phone's speaker picker that plays on the phone itself. -->
     <string name="Rpm_Cast_ThisAndroidPhone">Dieses Telefon</string>
+
+    <!-- Android phone: title of the dialog that removes one downloaded album from the phone. Rpm_Download_RemoveQuestion says iPhone. -->
+    <string name="Phone_Download_RemoveQuestion">Dieses Album vom Handy entfernen? Es bleibt in deiner Cloud-Bibliothek.</string>
+
+    <!-- Android phone: title of the dialog that removes several downloaded albums from the phone. {0} is how many. Rpm_Downloads_RemoveQuestion says iPhone. -->
+    <string name="Phone_Downloads_RemoveQuestion">%1$s Alben vom Handy entfernen? Sie bleiben in deiner Cloud-Bibliothek.</string>
 </resources>

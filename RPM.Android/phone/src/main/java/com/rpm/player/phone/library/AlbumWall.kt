@@ -43,6 +43,8 @@ import com.rpm.player.phone.design.scrolled
 import com.rpm.player.phone.design.Ink
 import com.rpm.player.phone.design.icon
 import com.rpm.player.phone.design.system
+import com.rpm.player.phone.downloads.LocalPlayable
+import com.rpm.player.phone.downloads.greyedOut
 import kotlin.math.max
 import kotlin.math.min
 
@@ -105,10 +107,13 @@ fun AlbumWall(
 @Composable
 fun AlbumTile(album: CloudAlbum, cover: Cover?, caption: AlbumCaption, images: ImageLoader, onOpen: () -> Unit) {
     val art = caption.art.dp
+    // Offline, a record with nothing on the phone is greyed: still there to look at, not there to play.
+    val playable = LocalPlayable.current.canPlay(album.key)
     Column(
         Modifier
             .width(art)
             .height(caption.card.dp)
+            .greyedOut(!playable)
             .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onOpen),
     ) {
         SleeveSquare(cover, art, images, radius = 10.dp, glyphSize = min(max(caption.art * 0.2, 16.0), 52.0).toFloat())

@@ -4,6 +4,11 @@
 
     <!-- Only the phone chooses a rate by the network (NetworkReach): Wi-Fi or mobile data, and Data Saver. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Downloads keep going with the app in the background: a dataSync foreground service with a notification
+         (DownloadService says why this type). The notification needs the permission from Android 13 on; without it
+         the downloads still run, with no notification. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".PhoneApplication"
@@ -36,6 +41,11 @@
                 <data android:scheme="rpm" android:host="auth" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".downloads.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 
 </manifest>

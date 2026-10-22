@@ -45,21 +45,30 @@ class NetworkReach(private val context: Context) {
 
     @Volatile private var capabilities: NetworkCapabilities? = null
     @Volatile private var online = true
+
+    /** The default network the readings are about. The loss of any other one is not news. */
+    @Volatile private var network: Network? = null
     private var started = false
 
     /** Starts watching. Called once, on the main thread. */
     fun begin() {
         if (started) return
         started = true
+        // With no network at all the system calls nothing, so a launch with none would stay online. Read before the
+        // callback is registered, so a network it reports is not overwritten.
+        if (connectivity.activeNetwork == null) online = false
         connectivity.registerDefaultNetworkCallback(
             object : ConnectivityManager.NetworkCallback() {
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    this@NetworkReach.network = network
                     capabilities = caps
                     online = true
                     publish()
                 }
 
                 override fun onLost(network: Network) {
+                    // A handover can report the old network lost after the new one has arrived.
+                    if (this@NetworkReach.network != null && network != this@NetworkReach.network) return
                     capabilities = null
                     online = false
                     publish()

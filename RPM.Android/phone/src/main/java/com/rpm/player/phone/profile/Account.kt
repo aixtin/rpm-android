@@ -144,6 +144,8 @@ class Account(
         services.images.memoryCache?.clear()
         cachedBytes = 0
         settings.adoptSupporter(false)
+        // The downloaded files are this account's music, and the next person who signs in on this phone must not find them.
+        (context.applicationContext as com.rpm.player.phone.PhoneApplication).downloads.forgetEverything()
         services.auth.signOut()
     }
 

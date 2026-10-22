@@ -94,6 +94,28 @@ class CloudClient(private val http: OkHttpClient, private val auth: AuthClient) 
     suspend fun stream(shelf: Shelf, rpmId: String, kilobits: Int): StreamTicket =
         get("cloud/stream/${escapeSegment(rpmId)}?rate=$kilobits" + shelf.query(first = false), StreamTicket.serializer())
 
+    /**
+     * Asks the store to make these tracks at [kilobits], and answers once the ask is on its work list. Nothing is made
+     * here: the store starts the transcoder, which makes them in the background. As the iPhone's `makeRenditions`.
+     *
+     * A stream that finds no rendition is given a live encode and queues nothing. Anything that needs the stored
+     * object and not the live one (a download) has to ask for it with this. Sent in pieces of [MOST_TRANSCODE_TRACKS],
+     * the server's own cap.
+     *
+     * @return how many can already be served at that rate, and how many were put on the work list.
+     */
+    suspend fun makeRenditions(rpmIds: List<String>, kilobits: Int): Pair<Int, Int> {
+        var ready = 0
+        var queued = 0
+        for (batch in rpmIds.chunked(MOST_TRANSCODE_TRACKS)) {
+            val body = WireJson.encodeToString(TranscodeAsk.serializer(), TranscodeAsk(batch, kilobits))
+            val said = send("POST", "cloud/transcode", body, TranscodeAnswer.serializer())
+            ready += said.ready ?: 0
+            queued += said.queued ?: 0
+        }
+        return ready to queued
+    }
+
     /** The album keys that have a stored cover, so a wall of covers does not request every album's cover. Each
      * key comes with the time its cover was last written (milliseconds; 0 from a server that sends only the
      * keys). */
@@ -327,5 +349,10 @@ class CloudClient(private val http: OkHttpClient, private val auth: AuthClient) 
     /** Refuses a borrowed answer whose [owner] is not the shelf's, because an old server ignores `?owner=`. */
     private fun Shelf.check(owner: String?) {
         if (this is Shelf.Borrowed && owner != ownerId) throw ApiException.NotServed(ownerId)
+    }
+
+    companion object {
+        /** How many tracks one transcode ask may name. The server's own cap. */
+        const val MOST_TRANSCODE_TRACKS = 200
     }
 }

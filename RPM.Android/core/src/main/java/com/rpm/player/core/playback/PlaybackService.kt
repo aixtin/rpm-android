@@ -22,6 +22,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.FileDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -102,7 +103,7 @@ class PlaybackService : MediaSessionService() {
         // stream's, and passes through. One client pins each computer's key and checks every other host.
         val sources = services.trackSources
         val network = OkHttpDataSource.Factory(services.peerHttp).setUserAgent(RadioBrowser.USER_AGENT)
-        val opened = SourcedDataSource.Factory(network, sources)
+        val opened = SourcedDataSource.Factory(network, sources, FileDataSource.Factory())
 
         // The sink is wrapped so the room can read what is being heard, at the moment it is heard, and so the
         // audio can go to a Cast device instead of the TV.
@@ -177,7 +178,9 @@ class PlaybackService : MediaSessionService() {
 
             override fun onPlayerError(error: PlaybackException) {
                 val mediaId = player.currentMediaItem?.mediaId?.takeIf { StationItems.uuidOf(it) == null } ?: return
-                if (sources.sourceOf(mediaId) !is TrackSource.Computer) return
+                // A computer that went away, or a download removed while it played: the cloud has the track.
+                val failed = sources.sourceOf(mediaId)
+                if (failed !is TrackSource.Computer && failed !is TrackSource.Local) return
                 sources.useCloud(mediaId)
                 player.prepare()
             }

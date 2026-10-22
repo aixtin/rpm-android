@@ -24,6 +24,9 @@ import java.util.concurrent.ConcurrentHashMap
 sealed interface TrackSource {
     data class Computer(val key: String) : TrackSource
     data object Cloud : TrackSource
+
+    /** A file on this device: a download ([LocalCopies]). */
+    data class Local(val file: java.io.File) : TrackSource
 }
 
 /**
@@ -34,8 +37,9 @@ sealed interface TrackSource {
  * so every open for one decoder must reach the same one. A seek back to 0:00 reuses the decoder too,
  * so not even an open at byte 0 chooses again.
  *
- * A computer is chosen when it is paired, on the network, not failed recently, holds the track, and the
- * track's format plays here; otherwise the cloud.
+ * A file on this device is chosen first, when the track is the person's own and was downloaded ([copies]). It plays
+ * with no network and costs no data. Otherwise a computer is chosen when it is paired, on the network, not failed
+ * recently, holds the track, and the track's format plays here; otherwise the cloud.
  */
 class TrackSources(
     private val computers: Computers,
@@ -45,6 +49,8 @@ class TrackSources(
     private val extension: Boolean,
     /** The rate the app's settings ask the cloud for. */
     private val rate: StreamRate = StreamRate(PlaybackService.STREAM_KILOBITS),
+    /** The tracks downloaded to this device. None on the TV. */
+    private val copies: LocalCopies = LocalCopies.None,
 ) {
     /** Keyed by media id, so the same track on two shelves is two choices. */
     private val chosen = ConcurrentHashMap<String, TrackSource>()
@@ -58,8 +64,8 @@ class TrackSources(
 
     fun sourceOf(mediaId: String): TrackSource? = chosen[mediaId]
 
-    /** The track failed from a computer and starts over (the service prepares it again). Every open of
-     * the new decoder reaches the cloud. */
+    /** The track failed from a computer or from its file and starts over (the service prepares it again). Every
+     * open of the new decoder reaches the cloud. */
     fun useCloud(mediaId: String) {
         chosen[mediaId] = TrackSource.Cloud
         rates.remove(mediaId)
@@ -91,6 +97,7 @@ class TrackSources(
                     "&t=" + Uri.encode(PeerWire.mediaTicket(token, PeerWire.TRACK_ROUTE, ref.rpmId))
             }
             TrackSource.Cloud -> streamLinks.resolveBlocking(ref, kilobits = rates.getOrPut(ref.mediaId) { rate.kilobits })
+            is TrackSource.Local -> Uri.fromFile(source.file).toString()
         }
     }
 
@@ -98,6 +105,7 @@ class TrackSources(
      * network hold the person's own music, not the owner's. */
     private fun choose(ref: TrackRef): TrackSource {
         if (ref.shelf != Shelf.Own) return TrackSource.Cloud
+        copies.fileOf(ref.rpmId)?.let { return TrackSource.Local(it) }
         return catalogs.here.value.values.firstOrNull { catalog ->
             catalog.tracks[ref.rpmId]?.let { playsHere(it, extension) } == true && computers.usable(catalog.computer) != null
         }?.let { TrackSource.Computer(it.computer) } ?: TrackSource.Cloud
@@ -150,14 +158,23 @@ class TrackSources(
  * the open or in the middle of a read, is reported so the next choice avoids it.
  */
 @OptIn(UnstableApi::class)
-class SourcedDataSource(private val upstream: DataSource, private val sources: TrackSources) : DataSource {
+class SourcedDataSource(
+    private val upstream: DataSource,
+    private val sources: TrackSources,
+    /** Opens a downloaded track's file. The network source cannot open a file address. */
+    private val files: DataSource,
+) : DataSource {
 
     private var source: TrackSource? = null
+
+    /** The source the last open went to, which every read and the close go to as well. */
+    private var reading: DataSource = upstream
 
     override fun open(dataSpec: DataSpec): Long {
         val ref = CloudTrackUri.ref(dataSpec.uri)
         if (ref == null) {
             source = null
+            reading = upstream
             return upstream.open(dataSpec)
         }
         val chosen = sources.choice(ref)
@@ -169,8 +186,9 @@ class SourcedDataSource(private val upstream: DataSource, private val sources: T
             sources.failed(chosen, failure)
             throw failure
         }
+        reading = if (chosen is TrackSource.Local) files else upstream
         return try {
-            upstream.open(dataSpec.withUri(Uri.parse(address)))
+            reading.open(dataSpec.withUri(Uri.parse(address)))
         } catch (e: IOException) {
             sources.failed(chosen, e)
             throw e
@@ -178,21 +196,28 @@ class SourcedDataSource(private val upstream: DataSource, private val sources: T
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int = try {
-        upstream.read(buffer, offset, length)
+        reading.read(buffer, offset, length)
     } catch (e: IOException) {
         source?.let { sources.failed(it, e) }
         throw e
     }
 
-    override fun addTransferListener(transferListener: TransferListener) = upstream.addTransferListener(transferListener)
+    override fun addTransferListener(transferListener: TransferListener) {
+        upstream.addTransferListener(transferListener)
+        files.addTransferListener(transferListener)
+    }
 
-    override fun getUri(): Uri? = upstream.uri
+    override fun getUri(): Uri? = reading.uri
 
-    override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
+    override fun getResponseHeaders(): Map<String, List<String>> = reading.responseHeaders
 
-    override fun close() = upstream.close()
+    override fun close() = reading.close()
 
-    class Factory(private val upstream: DataSource.Factory, private val sources: TrackSources) : DataSource.Factory {
-        override fun createDataSource(): DataSource = SourcedDataSource(upstream.createDataSource(), sources)
+    class Factory(
+        private val upstream: DataSource.Factory,
+        private val sources: TrackSources,
+        private val files: DataSource.Factory,
+    ) : DataSource.Factory {
+        override fun createDataSource(): DataSource = SourcedDataSource(upstream.createDataSource(), sources, files.createDataSource())
     }
 }

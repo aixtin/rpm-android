@@ -6159,4 +6159,10 @@
     <string name="Tv_QueueRearrangeHint">OK toma una canción, Arriba y Abajo la mueven, OK la deja.</string>
     <!-- Row in the Android phone's speaker picker that plays on the phone itself. -->
     <string name="Rpm_Cast_ThisAndroidPhone">Este teléfono</string>
+
+    <!-- Android phone: title of the dialog that removes one downloaded album from the phone. Rpm_Download_RemoveQuestion says iPhone. -->
+    <string name="Phone_Download_RemoveQuestion">¿Eliminar este álbum de tu teléfono? Seguirá en tu biblioteca en la nube.</string>
+
+    <!-- Android phone: title of the dialog that removes several downloaded albums from the phone. {0} is how many. Rpm_Downloads_RemoveQuestion says iPhone. -->
+    <string name="Phone_Downloads_RemoveQuestion">¿Eliminar %1$s álbumes de tu teléfono? Seguirán en tu biblioteca en la nube.</string>
 </resources>

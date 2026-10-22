@@ -3,6 +3,11 @@ package com.rpm.player.phone.shell
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -106,6 +111,10 @@ import com.rpm.player.phone.signin.SignIn
 import com.rpm.player.phone.signin.SignInScreen
 import com.rpm.player.phone.ui.RecordSpinner
 import com.rpm.player.phone.ui.VinylGround
+import com.rpm.player.phone.downloads.DownloadsPage
+import com.rpm.player.phone.downloads.LocalPlayable
+import com.rpm.player.phone.downloads.OfflineBar
+import com.rpm.player.phone.downloads.rememberDownloadsHere
 
 /**
  * The first screen of the app, as the iPhone's `RootView`. When signed out, the sign-in gate is shown. When
@@ -131,23 +140,34 @@ fun Root(services: Services, settings: PhoneSettings, signIn: SignIn, controller
             else -> false
         }
     }
-    when {
-        session == null -> SignInScreen(signIn)
-        // A library that could not be read still opens the app, as on iPhone (`AccountStanding.showing` with the wall's
-        // `ReadStanding.trouble`): the radio works without it, and the library tab says what went wrong and offers a
-        // retry. One call for all three states, so the tab and the stacks stay as they were across the retry.
-        shown is LibraryState.Ready || shown is LibraryState.Failed || (shown is LibraryState.Loading && afterFailure) -> {
-            val ready = (shown as? LibraryState.Ready) ?: remember(shown.shelf) { nothingRead(shown.shelf) }
-            val wall = when (shown) {
-                is LibraryState.Ready -> WallStanding.Showing
-                is LibraryState.Failed -> WallStanding.Trouble
-                else -> WallStanding.Reading
+    val reach by (LocalContext.current.applicationContext as com.rpm.player.phone.PhoneApplication).line.collectAsStateWithLifecycle()
+    Box(Modifier.fillMaxSize()) {
+        when {
+            session == null -> SignInScreen(signIn)
+            // A library that could not be read still opens the app, as on iPhone (`AccountStanding.showing` with the wall's
+            // `ReadStanding.trouble`): the radio works without it, and the library tab says what went wrong and offers a
+            // retry. One call for all three states, so the tab and the stacks stay as they were across the retry.
+            shown is LibraryState.Ready || shown is LibraryState.Failed || (shown is LibraryState.Loading && afterFailure) -> {
+                val ready = (shown as? LibraryState.Ready) ?: remember(shown.shelf) { nothingRead(shown.shelf) }
+                val wall = when (shown) {
+                    is LibraryState.Ready -> WallStanding.Showing
+                    is LibraryState.Failed -> WallStanding.Trouble
+                    else -> WallStanding.Reading
+                }
+                Shell(services, settings, ready, controller, sittingFrom, wall)
             }
-            Shell(services, settings, ready, controller, sittingFrom, wall)
+            shown is LibraryState.Loading -> Waiting(stringResource(R.string.Rpm_Library_Reading))
+            // Signed in, before the library has started: the iPhone's `starting`, the record alone.
+            else -> Waiting(null)
         }
-        shown is LibraryState.Loading -> Waiting(stringResource(R.string.Rpm_Library_Reading))
-        // Signed in, before the library has started: the iPhone's `starting`, the record alone.
-        else -> Waiting(null)
+        // Over every screen, the sign-in form and the wait included: the missing connection is why any of them can fail,
+        // and a notice only on the library would never be seen by somebody signing in. Once the app shows, it says what
+        // still plays.
+        val showing = session != null && (shown is LibraryState.Ready || shown is LibraryState.Failed || afterFailure)
+        OfflineBar(
+            showing = !reach.isOnline,
+            detail = if (showing) stringResource(R.string.Rpm_Net_OfflineDownloads) else null,
+        )
     }
 }
 
@@ -197,6 +217,8 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
     val stations = remember(heard, rules) { rules.shown(heard.map { it.station }).take(HOME_STATIONS) }
     val playlistWrites = rememberPlaylistWrites(services)
     RereadListsOnReturn(services)
+    val downloads = rememberDownloadsHere()
+    var showingDownloads by rememberSaveable { mutableStateOf(false) }
 
     // ── what can be done to a song or a record from anywhere ──
 
@@ -271,6 +293,8 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             onPlayAll = { play(queue(), 0, Tapped.List) },
             marked = favouriteRecords.isFavourite(album),
             onMark = { on -> services.scope.launch { services.albumFavourites.mark(album, on) } },
+            download = downloads.key(album, collection.shelf),
+            canPlay = downloads.canPlay,
         )
     }
 
@@ -405,6 +429,25 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
         tab = if (wasTheRadio) Tab.Radio else Tab.Library
     }
 
+    // When the connection goes, the person's own records are shown, with the ones not on the phone greyed: a borrowed
+    // collection cannot be read without a network. An open page of the own shelf stays open; its record may be on the
+    // phone. The settled reading is used, the one the offline bar draws, so a short handover does not move the screen.
+    val online = downloads.online
+    var wasOnline by remember { mutableStateOf(online) }
+    LaunchedEffect(online) {
+        if (wasOnline && !online) {
+            if (collection.shelf != Shelf.Own) {
+                opened = emptyList()
+                homeOpened = emptyList()
+                services.library.open(Shelf.Own)
+            }
+            tab = Tab.Library
+            settings.changeLibraryMode(LibraryMode.Albums)
+        }
+        wasOnline = online
+    }
+
+    CompositionLocalProvider(LocalPlayable provides downloads.playable) {
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
           CompositionLocalProvider(LocalSongMenu provides songMenu) {
@@ -467,8 +510,14 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                     // The saved stations of a shared collection are its owner's, and are never changed from here.
                     onSave = { station -> if (services.radio.saved.value.mine) services.radio.favorites.toggle(station) },
                 )
-                // The downloads page wires `downloaded` and `onDownloads` once it exists.
-                Tab.Profile -> ProfileTab(services, settings, controller, bottomRoom = chrome, downloaded = 0 to 0L, onDownloads = null)
+                Tab.Profile -> ProfileTab(
+                    services,
+                    settings,
+                    controller,
+                    bottomRoom = chrome,
+                    downloaded = downloads.downloaded,
+                    onDownloads = { showingDownloads = true },
+                )
             }
           }
         }
@@ -518,6 +567,20 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                 },
             )
         }
+        // The downloaded albums, risen over the profile tab as the iPhone's sheet.
+        AnimatedVisibility(
+            showingDownloads,
+            enter = slideInVertically(tween(320)) { it },
+            exit = slideOutVertically(tween(260)) { it },
+        ) {
+            DownloadsPage(
+                downloads.rows,
+                coverOf = { album -> collection.album(album.key)?.let(collection::cover) },
+                images = images,
+                onRemove = downloads.engine::remove,
+                onClose = { showingDownloads = false },
+            )
+        }
         SongOverlays(
             services,
             collection,
@@ -531,6 +594,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                 start?.let { controller?.start(it) }
             },
         )
+    }
     }
 }
 

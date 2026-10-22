@@ -80,6 +80,15 @@ data class StreamTicket(
     val expiresInSeconds: Long? = null,
 )
 
+/** The body of `cloud/transcode`: tracks to make at one rate. */
+@Serializable
+data class TranscodeAsk(val rpmIds: List<String>, val kilobits: Int)
+
+/** The answer of `cloud/transcode`: how many can already be served at the rate, and how many were put on the work
+ * list. Tracks that are not the account's own are counted in neither. */
+@Serializable
+data class TranscodeAnswer(val ready: Int? = null, val queued: Int? = null)
+
 /** The answer of `cloud/art`: the albums with a stored cover. Older servers send only [albumKeys]. */
 @Serializable
 data class AlbumArtIndex(

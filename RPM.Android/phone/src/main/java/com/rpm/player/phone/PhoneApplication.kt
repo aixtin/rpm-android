@@ -19,6 +19,7 @@ import com.rpm.player.core.playback.LevelMode
 import com.rpm.player.core.playback.Levelling
 import com.rpm.player.phone.art.Logos
 import com.rpm.player.phone.art.Portraits
+import com.rpm.player.phone.downloads.Downloads
 import com.rpm.player.phone.library.LibraryMode
 import com.rpm.player.phone.library.PlaylistLayout
 import com.rpm.player.phone.signin.SignIn
@@ -60,9 +61,23 @@ class PhoneApplication : RpmApplication() {
     /** Artists' logos, trimmed and kept for the life of the app. */
     val logos: Logos by lazy { Logos(this, services.images, services.artwork) }
 
+    /** The albums downloaded to this phone ([Downloads]). Made before the services, whose player plays from it. */
+    private lateinit var downloadBook: com.rpm.player.core.downloads.DownloadBook
+
+    /** The settled network reading ([Downloads.settle]): the offline bar, and what plays offline. */
+    val line: kotlinx.coroutines.flow.StateFlow<com.rpm.player.core.net.Reach> by lazy {
+        Downloads.settle(account.reach.now, services.scope)
+    }
+
+    /** The downloader, kept going for the life of the process ([Downloads.keepGoing]). */
+    val downloads: com.rpm.player.core.downloads.AlbumDownloads by lazy {
+        Downloads.make(services, settings, account.reach, downloadBook).also { Downloads.keepGoing(this, services, settings, line, it) }
+    }
+
     override fun makeServices(): Services {
         settings = PhoneSettings(this)
-        return Services(this, settings.levelling, com.rpm.player.core.radio.TunerOpensOn.EveryCountry)
+        downloadBook = Downloads.book(this)
+        return Services(this, settings.levelling, com.rpm.player.core.radio.TunerOpensOn.EveryCountry, copies = downloadBook)
     }
 
     override fun sessionOpening(): SessionOpening = SessionOpening.Player(

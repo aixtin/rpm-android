@@ -39,6 +39,8 @@ import com.rpm.player.core.library.TrackList
 import com.rpm.player.core.room.CardRoom
 import com.rpm.player.core.room.Rgb
 import com.rpm.player.core.room.RoomPalette
+import com.rpm.player.core.room.RoomPose
+import com.rpm.player.phone.ui.LiveRoom
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -113,20 +115,20 @@ fun ListFrameOverlay(framed: FramedList, modifier: Modifier) {
 
 /**
  * The room behind a list's window, for the five lists that have no picture of their own (`RoomView` behind the
- * window on the iPhone). It is the room as a card draws it ([CardRoom]): a small picture painted once, off the main
- * thread, at the pose the list's colours put it in, and stretched smooth over the square. It does not move. The
- * iPhone's square of a list moves only on the list's own page; here no square moves, so nothing is painted for each
- * frame.
+ * window on the iPhone), still. It is the room as a card draws it ([CardRoom]): a small picture painted once, off the
+ * main thread, in the pose the iPhone's still room stands in (the pose [seed] picks, [RoomPose]), and stretched smooth
+ * over the square. The iPhone's squares of a list hold still everywhere but on the list's own page and the home
+ * banner, because a moving room in every row of a list is a shader per row; those two places draw a [LiveRoom].
  */
 @Composable
-fun ListRoom(look: GeneratedListLook.Look, modifier: Modifier) {
+fun ListRoom(look: GeneratedListLook.Look, seed: String, modifier: Modifier) {
     BoxWithConstraints(modifier) {
         val (w, h) = CardRoom.small(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(), fewest = 32)
         val palette = look.room
-        val key = "$palette:${look.apart}:$w:$h"
+        val key = "$palette:$seed:$w:$h"
         var picture by remember(key) { mutableStateOf(ROOMS.get(key)) }
         if (picture == null) LaunchedEffect(key) {
-            picture = withContext(Dispatchers.Default) { paintRoom(palette, look.apart, w, h) }.also { ROOMS.put(key, it) }
+            picture = withContext(Dispatchers.Default) { paintRoom(palette, RoomPose.offset(seed), w, h) }.also { ROOMS.put(key, it) }
         }
         picture?.let { shown ->
             Canvas(Modifier.matchParentSize()) {
@@ -136,10 +138,10 @@ fun ListRoom(look: GeneratedListLook.Look, modifier: Modifier) {
     }
 }
 
-/** One still room picture of [w] by [h] in [palette], caught [apart] places along the drift. */
-internal fun paintRoom(palette: RoomPalette, apart: Int, w: Int, h: Int): ImageBitmap {
+/** One still room picture of [w] by [h] in [palette], [seconds] along its drift. */
+internal fun paintRoom(palette: RoomPalette, seconds: Double, w: Int, h: Int): ImageBitmap {
     val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-    CardRoom.paint(bitmap, palette, CardRoom.still(palette, apart), IntArray(w * h), CardRoom.Orbits())
+    CardRoom.paint(bitmap, palette, seconds, IntArray(w * h), CardRoom.Orbits())
     return bitmap.asImageBitmap()
 }
 

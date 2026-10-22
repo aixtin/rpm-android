@@ -61,6 +61,9 @@ class PhoneApplication : RpmApplication() {
     /** Artists' photographs, cropped around their faces. Kept for the life of the app. */
     val portraits: Portraits by lazy { Portraits(this, services.images, services.artwork) }
 
+    /** The moving rooms inside pages: one thread and one GL context for all of them ([com.rpm.player.phone.ui.LiveRoom]). */
+    val rooms: com.rpm.player.core.room.RoomPainter by lazy { com.rpm.player.core.room.RoomPainter(services.audioTap) }
+
     /** Artists' logos, trimmed and kept for the life of the app. */
     val logos: Logos by lazy { Logos(this, services.images, services.artwork) }
 

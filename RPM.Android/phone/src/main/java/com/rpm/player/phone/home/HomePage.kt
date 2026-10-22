@@ -85,10 +85,9 @@ import com.rpm.player.core.library.QuickPick
 import com.rpm.player.core.library.TrackList
 import com.rpm.player.phone.library.FramedList
 import com.rpm.player.phone.library.PlaylistSleeve
-import com.rpm.player.phone.library.ListRoom
 import com.rpm.player.core.library.listName
 import com.rpm.player.core.radio.RadioStation
-import com.rpm.player.phone.design.BlurredPicture
+import com.rpm.player.core.radio.StationLogo
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.Ink
 import com.rpm.player.phone.design.PageTitle
@@ -125,6 +124,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.floor
 import kotlin.math.roundToInt
+import com.rpm.player.phone.ui.LiveRoom
+import com.rpm.player.phone.ui.rememberRoomColours
+import com.rpm.player.core.room.RoomPalette
 
 /**
  * The height of the banner's plate, before it reaches up behind the title and the status bar (`HomeBannerMetrics` on
@@ -188,7 +190,7 @@ class HomeActions(
  * lock instead ([HomeLock]), which says how many more home needs. The key on the title line chooses whose collection
  * the app shows ([SwitchKey]), when anybody shares one with this account.
  *
- * Not yet implemented: the banner's copy in the page and its rooms, and the lists' framed covers.
+ * Not yet implemented: the banner's copy in the page (its reflection).
  *
  * @param onScreen whether home is the page showing: the banner turns only then.
  * @param onSwitch opens the collections picker, or null when there is only the person's own to choose.
@@ -254,7 +256,7 @@ fun HomePage(
             verticalArrangement = Arrangement.spacedBy(SECTIONS_APART),
         ) {
             if (banner.isNotEmpty()) {
-                Banner(banner, collection, images, logoStamp, overhang, statusBar, turns = onScreen && atTop, pull, onDress = { dress = it }, onReady = onReady, actions = actions)
+                Banner(banner, collection, images, logoStamp, overhang, statusBar, turns = onScreen && atTop, pull, roomsRun = onScreen, onDress = { dress = it }, onReady = onReady, actions = actions)
             } else {
                 Spacer(Modifier.height(heading + statusBar))
                 // No banner to wait for.
@@ -317,10 +319,14 @@ private fun Banner(
     statusBar: Dp,
     turns: Boolean,
     pull: TopPull,
+    roomsRun: Boolean,
     onDress: (Any?) -> Unit,
     onReady: () -> Unit,
     actions: HomeActions,
 ) {
+    // Every card's room runs on one clock, so the copy of the first card after the last draws the same frame as the first
+    // card when one takes the other's place (`RoomView.Zero.shared` on iPhone).
+    val roomZero = remember { System.nanoTime() }
     // A copy of the first card stands after the last, so the strip runs on from the last card to the first. When it comes
     // to rest on the copy, it is put back on the first card without a movement (`BannerRing` on iPhone).
     val ring = cards.size > 1
@@ -374,7 +380,7 @@ private fun Banner(
                 val card = page % cards.size
                 // No cut is made until the heading has been measured, because the overhang it gives changes the frame.
                 BannerCardView(
-                    cards[card], live = page == pager.currentPage, collection, images, scene.takeIf { overhang > 0.dp }, logoStamp,
+                    cards[card], live = page == pager.currentPage, roomRuns = roomsRun && page == pager.currentPage, roomZero, collection, images, scene.takeIf { overhang > 0.dp }, logoStamp,
                     width = maxWidth, plate = plate, mirror = mirror,
                     keepsSize = Modifier.graphicsLayer {
                         val grown = 1f + pull.pulled / platePx.coerceAtLeast(1f)
@@ -419,13 +425,16 @@ private fun bannerScene(width: Dp, overhang: Dp, statusBar: Dp): ArtScene {
 
 /**
  * One card: the artist's photograph where there is one, dimmed by a fifth and darker toward the foot where the
- * writing is. It also shows the cover, the kind of card, the title and the artist. Without a photograph, the
- * blurred cover stands in for the background that the iPhone draws there.
+ * writing is. It also shows the cover, the kind of card, the title and the artist. A list's card, a station's card and
+ * a record's card whose artist has no photograph stand on the room instead ([LiveRoom]), moving while the card is in
+ * front ([roomRuns]), on the banner's one clock ([roomZero]).
  */
 @Composable
 private fun BannerCardView(
     card: BannerCard,
     live: Boolean,
+    roomRuns: Boolean,
+    roomZero: Long,
     collection: Collection,
     images: ImageLoader,
     scene: ArtScene?,
@@ -476,8 +485,14 @@ private fun BannerCardView(
     }
     val title = album?.album ?: list?.let { listName(it.name) } ?: station?.display.orEmpty()
     // A generated list's card stands on the room in the list's own colours, and its sleeve wears the list's frame, as
-    // on the playlists view (`HomeBannerView`'s list card on iPhone; the room is still here, as every list room is).
+    // on the playlists view (`HomeBannerView`'s list card on iPhone).
     val framed = list?.let { FramedList.of(it, title) }
+    // A list's card and a station's stand on their room; a record's card stands on it once its photograph has been
+    // looked for and not found (`HomeFeatureCard.standingOnARoom`). The room is in a generated list's own colours, or
+    // in those of the card's cover or the station's logo. It moves only on the card in front, while home is showing.
+    val roomed = list != null || station != null || (looked && photo == null)
+    val colours = rememberRoomColours(if (roomed && framed == null) station?.let { StationLogo.of(it, logoStamp) } ?: cover else null, images)
+    val seed = album?.key?.toString() ?: station?.uuid ?: title
     val subtitle = album?.artist
 
     Box(
@@ -493,7 +508,7 @@ private fun BannerCardView(
             },
     ) {
         when {
-            framed != null -> ListRoom(framed.look, Modifier.fillMaxSize())
+            roomed -> LiveRoom(framed?.look?.room ?: colours ?: RoomPalette.FALLBACK, seed, running = roomRuns, Modifier.fillMaxSize(), zeroNanos = roomZero)
             photo != null -> {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current).data(photo).build(),
@@ -504,7 +519,6 @@ private fun BannerCardView(
                 )
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = RunOff.HELD)))
             }
-            cover != null -> BlurredPicture(cover, images, sigma = 40.dp, modifier = Modifier.fillMaxSize())
         }
         // Darker towards the foot, where the writing stands.
         Box(

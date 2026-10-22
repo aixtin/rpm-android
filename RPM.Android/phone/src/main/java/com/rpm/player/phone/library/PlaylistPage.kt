@@ -84,7 +84,9 @@ import com.rpm.player.phone.design.pt
 import com.rpm.player.phone.design.rememberBackdrop
 import com.rpm.player.phone.design.scrolled
 import com.rpm.player.phone.design.system
-import com.rpm.player.phone.ui.ArtGround
+import com.rpm.player.phone.ui.LiveRoom
+import com.rpm.player.phone.ui.rememberRoomColours
+import com.rpm.player.core.room.RoomPalette
 import kotlin.math.roundToInt
 
 /**
@@ -94,13 +96,13 @@ import kotlin.math.roundToInt
  * it, and the keys. All of these scroll away with the songs. The back key floats over the page. The queue has
  * its own page ([QueuePage]).
  *
- * The page's background is the list's own picture, blurred. Where there is no picture (the marked songs), the
- * app's background is used. If the cloud has no picture for a stored list, the square shows the cover of the
- * record the list opens on. The iPhone app uses that cover for the square only, not for the background.
+ * The page's background is the list's room, moving ([RoomGround]): in a generated list's own colours, in the colours
+ * of a list's own picture, or in the app's blue where there is no picture (the marked songs). If the cloud has no
+ * picture for a stored list, the square shows the cover of the record the list opens on. The iPhone app uses that
+ * cover for the square only, not for the room's colours.
  *
- * A generated list wears its frame on the square ([framed]). The five that stand on the room show it in the square
- * and behind the page, still; the iPhone's room moves, but a moving room is drawn for every frame, which this phone
- * cannot spare. Where the computer sent more than one list's worth of songs, the key beside Play shows another
+ * A generated list wears its frame on the square ([framed]). The five that stand on the room show it moving in the
+ * square too, as on iPhone. Where the computer sent more than one list's worth of songs, the key beside Play shows another
  * selection ([onNewList]).
  *
  * A stored playlist of the person's own has the plus key, which adds songs picked from the albums ([adding]), and,
@@ -182,12 +184,15 @@ fun PlaylistPage(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val edge = (maxWidth.value * COVER_FRACTION).coerceIn(160f, 360f).roundToInt().dp
         Box(Modifier.fillMaxSize().backdropSource(page)) {
-            if (framed != null && framed.look.roomed) RoomGround(framed) else ArtGround(picture, images)
+            // The list's own colours for a generated list; the colours of its own picture for any other, never a
+            // record's in it; the app's blue for a list with neither (`PlaylistPage.dress` on iPhone).
+            val read = rememberRoomColours(if (framed == null) picture else null, images)
+            RoomGround(framed?.look?.room ?: read ?: RoomPalette.FALLBACK, seed = name)
             LazyColumn(state = rows, modifier = Modifier.fillMaxSize().dissolvesAtTop(top) { rows.scrolled() }) {
                 item(key = "header") {
                     val empty = order.isEmpty()
                     val square = picture ?: order.firstOrNull()?.let(coverOf)
-                    ListHead(name, square, holding(order.size, seconds(order), missing), about(order, blurb), if (blurb == null) 2 else 3, images, edge, top, framed) {
+                    ListHead(name, square, holding(order.size, seconds(order), missing), about(order, blurb), if (blurb == null) 2 else 3, images, edge, top, framed, drifts = true) {
                         GlassButton(onClick = onPlayAll, modifier = Modifier.weight(1f), weight = Weight.Primary, enabled = !empty && !rearranging, height = 50.dp, radius = 14.dp) { style ->
                             BasicText(Glyph.play, style = icon(15f).copy(color = style.color))
                             Spacer(Modifier.width(10.dp))
@@ -264,13 +269,14 @@ class ListAdding(
 )
 
 /**
- * The page's background for a generated list that stands on the room: its room, still, filling the page, under the
- * iPhone's dark gradient, lighter at the top where the square and the name are, darker down where the rows are.
+ * The page's background: the list's room, moving, filling the page as the album page's blurred cover does, under the
+ * iPhone's dark gradient, lighter at the top where the square and the name are, darker down where the rows are
+ * (`PlaylistPage.backdrop` on iPhone). It runs while the page is the one in front ([LiveRoom]).
  */
 @Composable
-private fun RoomGround(framed: FramedList) {
+private fun RoomGround(palette: RoomPalette, seed: String) {
     Box(Modifier.fillMaxSize()) {
-        ListRoom(framed.look, Modifier.fillMaxSize())
+        LiveRoom(palette, seed, running = true, Modifier.fillMaxSize())
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
@@ -300,6 +306,7 @@ internal fun ListHead(
     edge: Dp,
     top: Dp,
     framed: FramedList? = null,
+    drifts: Boolean = false,
     keys: @Composable RowScope.() -> Unit,
 ) {
     Column(
@@ -308,7 +315,7 @@ internal fun ListHead(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(top))
-        PlaylistSleeve(picture, Glyph.record, edge, corner = 4.dp, mark = 52f, images, framed)
+        PlaylistSleeve(picture, Glyph.record, edge, corner = 4.dp, mark = 52f, images, framed, drifts = drifts)
         BasicText(name, Modifier.padding(top = 10.dp), maxLines = 3, style = displayBold(24f).copy(color = Color.White, textAlign = TextAlign.Center))
         BasicText(
             holding,

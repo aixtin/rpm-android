@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
+import com.rpm.player.phone.ui.LiveRoom
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import com.rpm.player.core.R
@@ -362,16 +363,19 @@ private fun Footer(browse: PlaylistBrowse, empty: Boolean, own: Boolean) {
  *
  * @param picture a list's picture ([com.rpm.player.core.library.ListArt]) or a record's cover. Null leaves only the
  * icon.
+ * @param drifts whether the room behind a roomed list's window moves (`roomDrifts` on iPhone). Every caller says so:
+ * it moves only on the list's own page, because each moving square is a room drawn 30 times a second.
  */
 @Composable
-fun PlaylistSleeve(picture: Any?, glyph: String, edge: Dp, corner: Dp, mark: Float, images: ImageLoader, framed: FramedList? = null) {
+fun PlaylistSleeve(picture: Any?, glyph: String, edge: Dp, corner: Dp, mark: Float, images: ImageLoader, framed: FramedList? = null, drifts: Boolean = false) {
     val shape = RoundedCornerShape(corner)
     Box(
         Modifier.size(edge).clip(shape).background(Color.Black.copy(alpha = 0x22 / 255f)).border(1.dp, Ink.cardBorder, shape),
         contentAlignment = Alignment.Center,
     ) {
         when {
-            framed != null && framed.look.roomed -> ListRoom(framed.look, Modifier.fillMaxSize())
+            framed != null && framed.look.roomed && drifts -> LiveRoom(framed.look.room, framed.name, running = true, Modifier.fillMaxSize())
+            framed != null && framed.look.roomed -> ListRoom(framed.look, framed.name, Modifier.fillMaxSize())
             picture != null -> {
                 if (framed == null) BasicText(glyph, style = icon(mark).copy(color = Ink.white(0x3A)))
                 AsyncImage(

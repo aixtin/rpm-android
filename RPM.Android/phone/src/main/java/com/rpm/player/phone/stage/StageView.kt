@@ -90,6 +90,11 @@ import com.rpm.player.phone.design.displayBold
 import com.rpm.player.phone.design.icon
 import com.rpm.player.phone.design.rememberBackdrop
 import com.rpm.player.phone.library.SleeveSquare
+import com.rpm.player.phone.player.CastMark
+import com.rpm.player.phone.player.SpeakerSheet
+import com.rpm.player.phone.player.Speakers
+import com.rpm.player.core.cast.CastState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rpm.player.phone.ui.RecordDisc
 import com.rpm.player.phone.ui.VinylGround
 import kotlinx.coroutines.Job
@@ -109,10 +114,11 @@ import kotlinx.coroutines.launch
  * Behind the words is the artist's photograph, cut so the face stays clear of the record and the column, or one of
  * the visualisers ([StageLook]) in its place.
  *
+ * @param speakers the speaker picker's model; null hides the speaker key, as on the iPhone when casting is not offered.
  * @param onPortrait the portrait key: back to the upright app without turning the phone.
  */
 @Composable
-fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTap, onPortrait: () -> Unit) {
+fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTap, speakers: Speakers?, onPortrait: () -> Unit) {
     val context = LocalContext.current
     val settings = remember { StageSettings.of(context) }
     val look = settings.look.takeIf { it.isDrawn } ?: StageLook.Artwork
@@ -122,6 +128,9 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
 
     var chromeUp by remember { mutableStateOf(true) }
     var showingLooks by remember { mutableStateOf(false) }
+    var showingSpeakers by remember { mutableStateOf(false) }
+    val castState = speakers?.casting?.state?.collectAsStateWithLifecycle()?.value
+    val playingOn = (castState as? CastState.On)?.device?.name
     var idle by remember { mutableStateOf<Job?>(null) }
     var columnHeight by remember { mutableIntStateOf(0) }
     var picture by remember { mutableStateOf<Bitmap?>(null) }
@@ -131,8 +140,12 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
     BackHandler(onBack = onPortrait)
 
     // The countdown restarts on every call: each tap gives the chrome another six seconds. Pinned, there is none.
+    // These read the settings themselves and not the values above: a countdown started before the pin was pressed
+    // must see the pin.
     fun hideChrome(asked: Boolean) {
-        if (pinned || showingLooks) return
+        val look = settings.look.takeIf { it.isDrawn } ?: StageLook.Artwork
+        // Never while a picker is open: it is a panel about this screen, and the chrome leaving behind it would confuse.
+        if (settings.pinned || showingLooks || showingSpeakers) return
         // The countdown hides the chrome only when there is something worth seeing behind it: a running look or the
         // artist's photograph. A tap is different: a person who taps the text away has decided to see the ground.
         if (!asked && look == StageLook.Artwork && picture == null) return
@@ -144,7 +157,7 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
     fun showChrome() {
         chromeUp = true
         idle?.cancel()
-        idle = if (pinned) null else scope.launch {
+        idle = if (settings.pinned) null else scope.launch {
             delay(IDLE_MS)
             hideChrome(asked = false)
         }
@@ -153,7 +166,7 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
     // A tap shows or hides the chrome. In the Uno app a tap only shows it; here, as on the iPhone, it toggles, because
     // a tap is all a person across the room can reach.
     fun tapped() {
-        if (chromeUp && !pinned) hideChrome(asked = true) else showChrome()
+        if (chromeUp && !settings.pinned) hideChrome(asked = true) else showChrome()
     }
 
     LaunchedEffect(Unit) { showChrome() }
@@ -212,6 +225,8 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
                     backdrop,
                     look,
                     pinned,
+                    playingOn,
+                    onSpeakers = speakers?.let { { showingSpeakers = true } },
                     onLooks = { showingLooks = true },
                     onPin = {
                         settings.pin(!pinned)
@@ -224,12 +239,24 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
                     now,
                     player,
                     images,
+                    playingOn,
                     onPressed = ::showChrome,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .onSizeChanged { columnHeight = it.height },
                 )
             }
+        }
+
+        if (showingSpeakers && speakers != null) {
+            SpeakerSheet(
+                speakers,
+                backdrop,
+                onClose = {
+                    showingSpeakers = false
+                    showChrome()
+                },
+            )
         }
 
         AnimatedVisibility(showingLooks, enter = fadeIn(tween(180)), exit = fadeOut(tween(180))) {
@@ -382,6 +409,8 @@ private fun Keys(
     backdrop: com.rpm.player.phone.design.Backdrop,
     look: StageLook,
     pinned: Boolean,
+    playingOn: String?,
+    onSpeakers: (() -> Unit)?,
     onLooks: () -> Unit,
     onPin: () -> Unit,
     onPortrait: () -> Unit,
@@ -392,6 +421,12 @@ private fun Keys(
         val visualiser = stringResource(R.string.Rpm_Stage_Visualiser)
         GlassKey(backdrop, onLooks, Modifier.semantics { contentDescription = visualiser }) {
             BasicText(StageLook.Ribbon.glyph, style = icon(15f).copy(color = if (look == StageLook.Artwork) dim else Color.White))
+        }
+        if (onSpeakers != null) {
+            val label = playingOn?.let { stringResource(R.string.Rpm_Cast_Playing, it) } ?: stringResource(R.string.Rpm_Cast_PlayOn)
+            GlassKey(backdrop, onSpeakers, Modifier.semantics { contentDescription = label }) {
+                CastMark(live = playingOn != null, color = if (playingOn == null) dim else Color.White, edge = 15.dp)
+            }
         }
         // Lit while pinned, like the visualiser key beside it.
         val pin = stringResource(if (pinned) R.string.Rpm_Stage_PinOff else R.string.Rpm_Stage_PinOn)
@@ -407,7 +442,7 @@ private fun Keys(
 
 /** The column of album cover, track details and transport keys, down the left and along the foot, away from the record. */
 @Composable
-private fun StageColumn(now: NowPlaying, player: Player, images: ImageLoader, onPressed: () -> Unit, modifier: Modifier) {
+private fun StageColumn(now: NowPlaying, player: Player, images: ImageLoader, playingOn: String?, onPressed: () -> Unit, modifier: Modifier) {
     val station = now.station
     val song = station?.said as? Icy.Said.Song
     // A station announces what it is playing itself: the song over the station's name. The player sheet reads it the
@@ -429,7 +464,7 @@ private fun StageColumn(now: NowPlaying, player: Player, images: ImageLoader, on
         BasicText(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = displayBold(34f).copy(color = Color.White))
         BasicText(said, maxLines = 1, overflow = TextOverflow.Ellipsis, style = display(18f).copy(color = Ink.white(0xB3)))
         BasicText(now.album, Modifier.padding(top = 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = display(13f).copy(color = Ink.white(0x77)))
-        Box(Modifier.padding(top = 14.dp)) { Needle(now, player) }
+        Box(Modifier.padding(top = 14.dp)) { Needle(now, player, playingOn) }
         Transport(now, player, onPressed)
     }
 }
@@ -440,7 +475,7 @@ private fun StageColumn(now: NowPlaying, player: Player, images: ImageLoader, on
  * the bar is dragged it follows the finger, and the player seeks once, where the finger lifts.
  */
 @Composable
-private fun Needle(now: NowPlaying, player: Player) {
+private fun Needle(now: NowPlaying, player: Player, playingOn: String?) {
     val position by rememberPosition(now)
     var scrubbing by remember { mutableStateOf<Long?>(null) }
     val shown = scrubbing ?: position
@@ -480,9 +515,15 @@ private fun Needle(now: NowPlaying, player: Player) {
                     Box(Modifier.offset(x = (played - 1.dp).coerceAtLeast(0.dp)).size(2.dp, 14.dp).clip(RoundedCornerShape(percent = 50)).background(Color.White))
                 }
             }
-            if (busy) {
+            // What is being waited for comes before where the sound is going, as on the iPhone.
+            val status = when {
+                busy -> stringResource(R.string.Rpm_Playback_Buffering)
+                playingOn != null -> stringResource(R.string.Rpm_Cast_Playing, playingOn)
+                else -> null
+            }
+            if (status != null) {
                 BasicText(
-                    stringResource(R.string.Rpm_Playback_Buffering),
+                    status,
                     Modifier.align(Alignment.TopEnd).offset(y = (-8).dp),
                     maxLines = 1,
                     style = clocks,

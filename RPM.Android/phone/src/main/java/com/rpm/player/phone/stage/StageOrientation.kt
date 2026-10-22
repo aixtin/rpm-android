@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.graphics.Point
+import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.OrientationEventListener
 import android.view.Surface
@@ -14,6 +17,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -122,13 +128,28 @@ fun StageOrientationFollows(loaded: Boolean) {
  * iPhone. Android's own `Configuration.orientation` cannot be used on a square screen: it compares the width with
  * the height left after the system bars, so an upright square phone reads as landscape.
  *
- * Read again on every configuration change, which a rotation is (the activity handles it without being recreated).
+ * Read again on every configuration change and whenever the display says it has changed: a quarter turn of a square
+ * screen need not change anything in the configuration that Compose compares.
  */
 @Composable
 fun rememberTurned(): Boolean {
     val configuration = LocalConfiguration.current
     val context = LocalContext.current
-    return remember(configuration.orientation, configuration.screenWidthDp, configuration.screenHeightDp) { turned(context) }
+    var turned by remember { mutableStateOf(turned(context)) }
+    LaunchedEffect(configuration) { turned = turned(context) }
+    DisposableEffect(context) {
+        val displays = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+            override fun onDisplayRemoved(displayId: Int) = Unit
+            override fun onDisplayChanged(displayId: Int) {
+                turned = turned(context)
+            }
+        }
+        displays.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
+        onDispose { displays.unregisterDisplayListener(listener) }
+    }
+    return turned
 }
 
 @Suppress("DEPRECATION")

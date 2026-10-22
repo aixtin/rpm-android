@@ -129,6 +129,7 @@ import com.rpm.player.phone.downloads.rememberDownloadsHere
 import com.rpm.player.phone.stage.StageOrientation
 import com.rpm.player.phone.stage.StageOrientationFollows
 import com.rpm.player.phone.stage.StageView
+import com.rpm.player.phone.player.Speakers
 import com.rpm.player.phone.stage.findActivity
 import com.rpm.player.phone.stage.rememberTurned
 import com.rpm.player.core.playback.NowPlaying
@@ -676,7 +677,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             },
         )
         // Over everything, the player included: the stage is the whole screen while the phone is turned.
-        Stage(onStage, now, controller, services)
+        Stage(onStage, now, controller, services, wiring.speakers)
     }
     }
 }
@@ -745,14 +746,14 @@ private fun SongOverlays(
  * fade out, so a stage that closes because the music stopped does not go blank before it has faded.
  */
 @Composable
-private fun Stage(shown: Boolean, now: NowPlaying?, controller: Player?, services: Services) {
+private fun Stage(shown: Boolean, now: NowPlaying?, controller: Player?, services: Services, speakers: Speakers?) {
     val activity = LocalContext.current.findActivity()
     var held by remember { mutableStateOf(now) }
     if (now != null) held = now
     AnimatedVisibility(shown, enter = fadeIn(tween(250)), exit = fadeOut(tween(250))) {
         val playing = held
         if (playing != null && controller != null) {
-            StageView(playing, controller, services.images, services.audioTap, onPortrait = { activity?.let(StageOrientation::requestPortrait) })
+            StageView(playing, controller, services.images, services.audioTap, speakers, onPortrait = { activity?.let(StageOrientation::requestPortrait) })
         }
     }
 }

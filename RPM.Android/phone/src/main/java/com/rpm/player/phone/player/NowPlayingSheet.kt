@@ -45,6 +45,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
@@ -93,9 +98,7 @@ import com.rpm.player.phone.design.iconOutline
 import com.rpm.player.phone.design.rememberBackdrop
 import com.rpm.player.phone.library.SleeveSquare
 import com.rpm.player.phone.radio.StationFace
-import com.rpm.player.phone.ui.ArtGround
 import com.rpm.player.phone.ui.RecordDisc
-import com.rpm.player.phone.ui.rememberAccent
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -112,6 +115,9 @@ private const val HOME_STIFFNESS = 439f
 /** The size of the cover, and the scale it shrinks to while the record is paused. */
 private val SLEEVE = 260.dp
 private const val PAUSED_SCALE = 0.9f
+
+/** The room one spectrum bar needs, with its gap; at less the run looks like a texture, not bars. */
+private val SPECTRUM_PITCH = 7.dp
 
 /** How far a flick across the sleeve has to go to change the track, and how far a finger moves before it is one. */
 private val FLICK = 80.dp
@@ -143,8 +149,8 @@ private const val QUEUE_GLYPH = ""
  * value, `offset`, moves it both ways, as the iPhone's `ScreenPull`. Its top corners are square against the top of the
  * screen and round as soon as it moves away, and stay round while it leaves.
  *
- * **The background is the album page's**, the blurred cover with the cover's own colour over it, as on iPhone where
- * the room cannot be drawn. The room behind the cover and the spectrum beside it are not drawn here yet.
+ * **Behind the cover is the room** ([StageGround]), lit by the record that is playing, in the cover's colours, and the
+ * spectrum runs out of both sides of the cover ([spectrumRun]), as on iPhone.
  *
  * Fast-changing state is read low: the seek bar and the clocks read the position in their own composable, and the
  * lyrics recompose once a line.
@@ -194,7 +200,6 @@ fun NowPlayingSheet(
     val castState = speakers?.casting?.state?.collectAsStateWithLifecycle()?.value
     val playingOn = (castState as? CastState.On)?.device?.name
     val onStation = now.station != null
-    val accent = rememberAccent(now.cover, images)
 
     // Asked when the sheet is shown and again when the record changes, and only while it is shown.
     LaunchedEffect(now.mediaId) { onNeedLyrics() }
@@ -208,6 +213,12 @@ fun NowPlayingSheet(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val height = with(density) { maxHeight.toPx() }
         val offset = remember { Animatable(height) }
+        // The room behind the sheet and the spectrum beside the cover. While the sheet is all the way up it covers the
+        // screen, and the rooms of the page under it stop.
+        val stage = remember { Stage() }
+        stage.top = { offset.value }
+        stage.height = height
+        val fullyUp by remember { derivedStateOf { offset.value == 0f } }
         var up by remember { mutableStateOf(true) }
         val sheetSpring = spring<Float>(dampingRatio = 1f, stiffness = SHEET_STIFFNESS)
         LaunchedEffect(Unit) { offset.animateTo(0f, sheetSpring) }
@@ -241,7 +252,7 @@ fun NowPlayingSheet(
                 .clickable(remember { MutableInteractionSource() }, indication = null) {},
         ) {
             // The ground is what the glass on the sheet blurs: the speaker picker, the menu, the row of keys.
-            Box(Modifier.fillMaxSize().backdropSource(backdrop)) { ArtGround(now.cover, images, accent = accent) }
+            Box(Modifier.fillMaxSize().backdropSource(backdrop)) { StageGround(now, images, stage, covers = fullyUp, Modifier.fillMaxSize()) }
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                 Grip(
                     onDrag = { delta -> scope.launch { offset.snapTo((offset.value + delta).coerceAtLeast(0f)) } },
@@ -275,7 +286,7 @@ fun NowPlayingSheet(
                     if (lyricsUp) {
                         LyricView(lyrics, now)
                     } else {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Sleeve(now, player, images) }
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Sleeve(now, player, images, stage) }
                     }
                 }
                 Column(Modifier.padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -366,16 +377,34 @@ private fun Grip(onDrag: (Float) -> Unit, onLetGo: (Float) -> Unit, onTap: () ->
  * no cover, the record itself, not turning; a station shows its logo on a card.
  */
 @Composable
-private fun Sleeve(now: NowPlaying, player: Player, images: ImageLoader) {
+private fun Sleeve(now: NowPlaying, player: Player, images: ImageLoader, stage: Stage) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val scale by animateFloatAsState(if (now.playing) 1f else PAUSED_SCALE, spring(dampingRatio = 1f, stiffness = SHEET_STIFFNESS), label = "sleeve")
     val flick = remember { Animatable(0f) }
     val onStation = now.station != null
 
+    // Where the cover's box sits across the window, for the spectrum, which runs out to the window's edges.
+    val across = remember { FloatArray(2) }
     Box(
         Modifier
             .size(SLEEVE)
+            .onGloballyPositioned {
+                val at = it.positionInRoot()
+                across[0] = at.x
+                across[1] = it.findRootCoordinates().size.width.toFloat()
+                stage.footAt(at.y + it.size.height)
+            }
+            // Under the cover's own layer, so it is measured against the cover as drawn (paused smaller, pushed aside by a
+            // flick) without being scaled or moved with it (`SpectrumRunView` on iPhone).
+            .drawBehind {
+                val room = stage.room ?: return@drawBehind
+                val side = size.width * scale
+                val middle = across[0] + size.width / 2 + flick.value
+                translate(left = -across[0]) {
+                    spectrumRun(room, across[1], middle - side / 2, middle + side / 2, size.height / 2, side, SPECTRUM_PITCH.toPx())
+                }
+            }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale

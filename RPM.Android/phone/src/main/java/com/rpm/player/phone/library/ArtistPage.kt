@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -100,6 +101,11 @@ import com.rpm.player.phone.design.dissolvesAtTop
 import com.rpm.player.phone.design.TopPull
 import com.rpm.player.phone.design.rememberTopPull
 import com.rpm.player.phone.ui.RunOff
+import com.rpm.player.core.room.PaintedRoom
+import com.rpm.player.core.room.RoomPalette
+import com.rpm.player.phone.ui.LiveRoom
+import com.rpm.player.phone.ui.rememberRoomColours
+import com.rpm.player.phone.ui.roomReflection
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.ImageBitmap
@@ -213,10 +219,17 @@ fun ArtistPage(
             val album = artist.own.firstNotNullOfOrNull { key -> collection.album(key)?.album?.takeIf { it.isNotBlank() } }.orEmpty()
             value = logos.logo(artist.name, album, cap, room)?.let { Title.Logo(artist.name, it) } ?: Title.Name(artist.name)
         }
+        // Whether the photograph has been looked for, found or not: without one, the band stands on the room.
+        var looked by remember(artist.name, scene) { mutableStateOf(false) }
         val photo by produceState<Bitmap?>(null, artist.name, scene) {
             val album = artist.own.firstNotNullOfOrNull { key -> collection.album(key)?.album?.takeIf { it.isNotBlank() } }.orEmpty()
             value = portraits.portrait(artist.name, album, scene)
+            looked = true
         }
+        // The room in the colours of their first record (`ArtistPage.dress` on iPhone), or the app's blue.
+        val first = shelves.records.firstOrNull() ?: shelves.together.firstOrNull()
+        val colours = rememberRoomColours(first?.let { collection.cover(it) }, images)
+        val roomed = if (looked && photo == null) colours ?: RoomPalette.FALLBACK else null
         val sleeve = (plate.value * 0.38f).coerceIn(120f, 200f).toDouble()
         Box(Modifier.fillMaxSize().backdropSource(page)) {
             ArtGround(photo, images)
@@ -228,7 +241,7 @@ fun ArtistPage(
                     var tall by remember { mutableIntStateOf(0) }
                     Box(Modifier.onSizeChanged { tall = it.height }) {
                         val depth = with(density) { (tall.toDp() - plate).coerceAtLeast(0.dp) }
-                        BandGround(photo, plate, depth, images, pull, Modifier.matchParentSize())
+                        BandGround(photo, roomed, artist.name, plate, depth, images, pull, Modifier.matchParentSize())
                         Column {
                             Band(title?.takeIf { it.artist == artist.name }, plate)
                             article?.let { AboutText(it, onOpen = { reading = true }, Modifier.padding(horizontal = 20.dp).padding(top = 10.dp)) }
@@ -326,10 +339,14 @@ private const val BLUR_FROM = 0.6f
  * mirror is the photograph as drawn while it stays within the blurred part of the plate, and blurred all the way down
  * when it is deeper than that (`ArtistPage.reflection`), so the sharp face never shows upside down behind the keys.
  *
+ * Where the artist has no photograph, the band stands on the room instead ([room], in the colours of their first record),
+ * moving, and the room is what is mirrored under it ([roomReflection]), as the iPhone's room draws its own fold.
+ *
  * It grows about the plate's foot while the page is pulled down past its top. Only its layer reads the pull.
  */
 @Composable
-private fun BandGround(photo: Bitmap?, plate: Dp, depth: Dp, images: ImageLoader, pull: TopPull, modifier: Modifier) {
+private fun BandGround(photo: Bitmap?, room: RoomPalette?, seed: String, plate: Dp, depth: Dp, images: ImageLoader, pull: TopPull, modifier: Modifier) {
+    var held by remember { mutableStateOf<PaintedRoom?>(null) }
     val density = LocalDensity.current
     val platePx = with(density) { plate.toPx() }
     val runOff by produceState<ImageBitmap?>(null, photo, plate, depth) {
@@ -355,6 +372,8 @@ private fun BandGround(photo: Bitmap?, plate: Dp, depth: Dp, images: ImageLoader
                     modifier = Modifier.fillMaxSize(),
                 )
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = HELD)))
+            } else if (room != null) {
+                LiveRoom(room, seed, running = true, Modifier.fillMaxSize(), onRoom = { r, here -> held = if (here) r else held.takeIf { it !== r } })
             } else {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0x22 / 255f)))
             }
@@ -369,6 +388,12 @@ private fun BandGround(photo: Bitmap?, plate: Dp, depth: Dp, images: ImageLoader
                     ),
                 ),
             )
+        }
+        // The room turned over under the band, while the band stands on one.
+        val mirrored = held
+        if (photo == null && room != null && mirrored != null && depth > 0.dp) {
+            val platePx2 = platePx
+            Box(Modifier.fillMaxWidth().height(depth).offset(y = plate).drawBehind { roomReflection(mirrored, 0, platePx2) })
         }
         // The blur toward the foot and the mirror under it, baked once per photograph and depth, at the page's width.
         runOff?.let { baked ->

@@ -64,7 +64,7 @@ import com.rpm.player.phone.design.rememberBackdrop
 import com.rpm.player.phone.design.scrolled
 import com.rpm.player.phone.player.QueueEntry
 import com.rpm.player.phone.player.QueueRead
-import com.rpm.player.phone.ui.ArtGround
+import com.rpm.player.core.room.RoomPalette
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -166,8 +166,9 @@ fun QueuePage(queue: QueueRead, sittingFrom: Int, controller: Player?, images: I
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val sleeve = (maxWidth.value * COVER_FRACTION).coerceIn(160f, 360f).roundToInt().dp
         Box(Modifier.fillMaxSize().backdropSource(page)) {
-            // Nobody made a picture for the queue, so the page uses the app's own background.
-            ArtGround(null, images)
+            // The queue is a list's page on iPhone, and stands on the list's room; nobody made a picture for it, so the
+            // room is in the app's own blue.
+            RoomGround(RoomPalette.FALLBACK, seed = stringResource(R.string.AlbumMenu_PlaylistNowPlaying))
             LazyColumn(state = list, modifier = Modifier.fillMaxSize().dissolvesAtTop(top) { list.scrolled() }) {
                 item(key = "header") {
                     val seconds = rows.sumOf { it.item.track.tags?.durationSeconds ?: 0.0 }.toInt()

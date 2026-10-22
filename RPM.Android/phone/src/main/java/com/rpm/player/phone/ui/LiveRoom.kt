@@ -35,6 +35,15 @@ import com.rpm.player.core.room.PaintedRoom
 import com.rpm.player.core.room.RoomPalette
 import com.rpm.player.phone.PhoneApplication
 import kotlin.math.ceil
+import kotlin.math.roundToInt
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
 
 /**
  * A card's room, moving: the iPhone's `RoomView(breathes: true)`. It is the room at full strength, breathing on its own
@@ -77,7 +86,8 @@ fun LiveRoom(
 /**
  * The player's room: the iPhone's `RoomView(breathes: false)` behind the now playing sheet. It is lit by the record
  * that is playing, dimmed to read the text over it, darker below [foot] (where the text starts, as a share of the
- * height from the top) and in the corners. While it runs and [covers] the screen, every other room stops.
+ * height from the top; below 0 leaves it to whoever sets [PaintedRoom.foot] itself) and in the corners. While it runs and
+ * [covers] the screen, every other room stops.
  * [onRoom] hands the room to the caller, whose spectrum reads its run ([PaintedRoom.run]).
  */
 @Composable
@@ -97,7 +107,7 @@ private fun RoomPicture(room: PaintedRoom, palette: RoomPalette, running: Boolea
     SideEffect {
         room.palette = palette
         room.covers = covers
-        room.foot = foot
+        if (foot >= 0f) room.foot = foot
         seen.wanted = running && resumed
         room.running = seen.wanted && seen.inWindow
     }
@@ -167,3 +177,62 @@ fun rememberRoomColours(picture: Any?, images: ImageLoader): RoomPalette? {
 
 /** The colours read so far, by picture. */
 private val COLOURS = LruCache<Any, RoomPalette>(64)
+
+/**
+ * A room's reflection under the card it fills, [x] across and filling this scope's height: the bottom of the room's
+ * newest picture turned over about the card's foot ([platePx] tall), under the card's foot wash turned over with it,
+ * fading out as `mirrorFade` fades the photographs' reflections ([RunOff]). It is what the iPhone's one room program
+ * draws below its fold (`RoomView.fold`): the home banner's cards and an artist's band cast it. Reading
+ * [PaintedRoom.frame] here redraws only this drawing when the room moves.
+ */
+fun DrawScope.roomReflection(room: PaintedRoom, x: Int, platePx: Float) {
+    room.frame
+    val picture = room.picture ?: return
+    val w = size.width
+    val h = size.height
+    if (h <= 0f || platePx <= 0f) return
+    val rows = (picture.height * (h / platePx)).roundToInt().coerceIn(1, picture.height)
+    drawContext.canvas.saveLayer(Rect(x.toFloat(), 0f, x + w, h), Paint())
+    withTransform({ scale(1f, -1f, pivot = Offset(0f, h / 2f)) }) {
+        drawImage(
+            picture,
+            srcOffset = IntOffset(0, picture.height - rows),
+            srcSize = IntSize(picture.width, rows),
+            dstOffset = IntOffset(x, 0),
+            dstSize = IntSize(w.roundToInt(), h.roundToInt()),
+            filterQuality = FilterQuality.Low,
+        )
+    }
+    // The foot wash as it lies on the card, read upwards from the foot.
+    val wash = Array(WASH_SAMPLES) { i ->
+        val u = i / (WASH_SAMPLES - 1f)
+        u to Color.Black.copy(alpha = footWash(1f - u * h / platePx))
+    }
+    drawRect(Brush.verticalGradient(*wash, startY = 0f, endY = h), topLeft = Offset(x.toFloat(), 0f), size = Size(w, h))
+    drawRect(
+        Brush.verticalGradient(
+            0f to Color.Black,
+            0.25f to Color.Black.copy(alpha = 0.84f),
+            0.5f to Color.Black.copy(alpha = 0.5f),
+            0.75f to Color.Black.copy(alpha = 0.16f),
+            1f to Color.Transparent,
+            startY = 0f,
+            endY = h,
+        ),
+        topLeft = Offset(x.toFloat(), 0f),
+        size = Size(w, h),
+        blendMode = BlendMode.DstIn,
+    )
+    drawContext.canvas.restore()
+}
+
+/** The card's foot wash (`HomeFeatureCard.foot`) at [at] of the card's height from its top: clear, 0.25 at four
+ * tenths, 0.7 from where the writing starts to the foot. */
+private fun footWash(at: Float): Float = when {
+    at <= 0f -> 0f
+    at < 0.4f -> at / 0.4f * 0.25f
+    at < 0.68f -> 0.25f + (at - 0.4f) / 0.28f * 0.45f
+    else -> 0.7f
+}
+
+private const val WASH_SAMPLES = 9

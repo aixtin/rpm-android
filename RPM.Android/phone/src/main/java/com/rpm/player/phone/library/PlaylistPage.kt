@@ -274,7 +274,7 @@ class ListAdding(
  * (`PlaylistPage.backdrop` on iPhone). It runs while the page is the one in front ([LiveRoom]).
  */
 @Composable
-private fun RoomGround(palette: RoomPalette, seed: String) {
+internal fun RoomGround(palette: RoomPalette, seed: String) {
     Box(Modifier.fillMaxSize()) {
         LiveRoom(palette, seed, running = true, Modifier.fillMaxSize())
         Box(

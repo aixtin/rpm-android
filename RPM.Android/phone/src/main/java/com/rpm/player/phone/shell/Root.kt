@@ -1,6 +1,10 @@
 package com.rpm.player.phone.shell
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.slideInHorizontally
@@ -465,7 +469,13 @@ private fun SongOverlays(
     onAnswered: (QueueStart?) -> Unit,
 ) {
     val context = LocalContext.current
-    filing?.let { track ->
+    // The picker fades in and out over 0.18 s, as the iPhone's overlay does. The song is kept while it fades out, so the
+    // panel does not go blank as it leaves.
+    // Not state: it only follows [filing], which is.
+    val filed = remember { object { var track: CloudTrack? = null } }
+    if (filing != null) filed.track = filing
+    AnimatedVisibility(filing != null, enter = fadeIn(tween(180)), exit = fadeOut(tween(180))) {
+        val track = filed.track ?: return@AnimatedVisibility
         key(track.rpmId) {
             PlaylistPickSheet(
                 track,

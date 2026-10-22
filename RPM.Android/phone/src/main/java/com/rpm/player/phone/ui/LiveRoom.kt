@@ -18,6 +18,7 @@ import com.rpm.player.core.room.CoverColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -51,9 +52,25 @@ import kotlin.math.ceil
  * picture. It is drawn at a tenth of its pixels ([share]) and stretched smooth.
  */
 @Composable
-fun LiveRoom(palette: RoomPalette, seed: String, running: Boolean, modifier: Modifier, zeroNanos: Long? = null, share: Float = CARD_SHARE) {
+fun LiveRoom(
+    palette: RoomPalette,
+    seed: String,
+    running: Boolean,
+    modifier: Modifier,
+    zeroNanos: Long? = null,
+    share: Float = CARD_SHARE,
+    onRoom: ((PaintedRoom, Boolean) -> Unit)? = null,
+) {
     val painter = (LocalContext.current.applicationContext as PhoneApplication).rooms
     val room = remember(seed, zeroNanos) { if (zeroNanos != null) painter.card(seed, zeroNanos) else painter.card(seed) }
+    // Handed to whoever draws the room again somewhere else (the banner's reflection), and taken back when it goes.
+    if (onRoom != null) {
+        val tell by rememberUpdatedState(onRoom)
+        DisposableEffect(room) {
+            tell(room, true)
+            onDispose { tell(room, false) }
+        }
+    }
     RoomPicture(room, palette, running, covers = false, foot = 1f, share, modifier)
 }
 

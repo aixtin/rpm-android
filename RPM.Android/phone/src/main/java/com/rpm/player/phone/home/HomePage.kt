@@ -125,6 +125,14 @@ import kotlinx.coroutines.withContext
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import com.rpm.player.phone.ui.LiveRoom
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import com.rpm.player.core.room.PaintedRoom
 import com.rpm.player.phone.ui.rememberRoomColours
 import com.rpm.player.core.room.RoomPalette
 
@@ -373,6 +381,9 @@ private fun Banner(
             // Each card's photograph as baked for its run-off and reflection ([RunOff]), by card. The strip draws the
             // reflections from here, under the dots and the rows.
             val runOffs = remember(cards) { mutableStateMapOf<Int, ImageBitmap>() }
+            // Each card's room, by card, for a card that stands on one: the strip turns it over under the card as its
+            // reflection (`RoomView.fold` on iPhone).
+            val rooms = remember(cards) { mutableStateMapOf<Int, PaintedRoom>() }
             // Scaled up about the card's foot while the page is pulled down past its top, so the picture zooms and the
             // page's ground does not show above it (`growsWithPull` on iPhone). The whole strip is scaled, because a
             // pager clips its pages to itself; the writing is scaled back (`keepsSize`), so only the picture grows.
@@ -389,10 +400,11 @@ private fun Banner(
                         transformOrigin = TransformOrigin(0.5f, 1f)
                     },
                     onRunOff = { baked -> if (baked != null) runOffs[card] = baked else runOffs.remove(card) },
+                    onRoom = { room, here -> if (here) rooms[card] = room else if (rooms[card] === room) rooms.remove(card) },
                     onDress = onDress, onReady = onReady, actions = actions,
                 )
             }
-            BannerReflections(pager, cards.size, runOffs, plate, mirror, pull, platePx)
+            BannerReflections(pager, cards.size, runOffs, rooms, plate, mirror, pull, platePx)
         }
         if (cards.size > 1) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
@@ -444,6 +456,7 @@ private fun BannerCardView(
     mirror: Dp,
     keepsSize: Modifier,
     onRunOff: (ImageBitmap?) -> Unit,
+    onRoom: (PaintedRoom, Boolean) -> Unit,
     onDress: (Any?) -> Unit,
     onReady: () -> Unit,
     actions: HomeActions,
@@ -508,7 +521,7 @@ private fun BannerCardView(
             },
     ) {
         when {
-            roomed -> LiveRoom(framed?.look?.room ?: colours ?: RoomPalette.FALLBACK, seed, running = roomRuns, Modifier.fillMaxSize(), zeroNanos = roomZero)
+            roomed -> LiveRoom(framed?.look?.room ?: colours ?: RoomPalette.FALLBACK, seed, running = roomRuns, Modifier.fillMaxSize(), zeroNanos = roomZero, onRoom = onRoom)
             photo != null -> {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current).data(photo).build(),
@@ -565,7 +578,9 @@ private fun BannerCardView(
  * The reflections under the banner's cards, drawn by the strip and not by the cards: a pager clips each page to
  * itself, and a reflection runs down past the card behind the dots and the first rows. Each card's own reflection
  * moves with the card under the finger, as on iPhone, where every card casts its own. It is the mirror part of the
- * card's baked [RunOff], so it matches the card row for row where they meet.
+ * card's baked [RunOff], so it matches the card row for row where they meet. A card that stands on a room casts the
+ * room's own picture turned over ([mirrorRoom]), so the reflection moves with the room, as the iPhone's one program
+ * draws the card and its fold.
  *
  * It takes no room: it is laid out with no height at the card's foot, and drawn [mirror] deep under it. It grows with a
  * pull about the card's foot, as the card above it does. Only the draw reads the strip's position and the pull.
@@ -575,6 +590,7 @@ private fun BannerReflections(
     pager: PagerState,
     cards: Int,
     runOffs: Map<Int, ImageBitmap>,
+    rooms: Map<Int, PaintedRoom>,
     plate: Dp,
     mirror: Dp,
     pull: TopPull,
@@ -600,10 +616,14 @@ private fun BannerReflections(
                 val at = pager.currentPage + pager.currentPageOffsetFraction
                 val first = floor(at).toInt()
                 for (page in first..first + 1) {
-                    val baked = runOffs[page.mod(cards)] ?: continue
+                    val x = ((page - at) * size.width).roundToInt()
+                    val baked = runOffs[page.mod(cards)]
+                    if (baked == null) {
+                        rooms[page.mod(cards)]?.let { mirrorRoom(it, x, platePx) }
+                        continue
+                    }
                     val from = (plate.value * RunOff.SCALE).roundToInt().coerceAtMost(baked.height)
                     if (baked.height - from <= 0) continue
-                    val x = ((page - at) * size.width).roundToInt()
                     drawImage(
                         baked,
                         srcOffset = IntOffset(0, from),
@@ -615,6 +635,56 @@ private fun BannerReflections(
             },
     )
 }
+
+/**
+ * A room card's reflection, [x] across, filling the strip's depth: the bottom of the room's newest picture turned over
+ * about the card's foot ([platePx] tall), under the card's foot wash turned over with it, fading out as `mirrorFade`
+ * fades the photographs' reflections. Reading [PaintedRoom.frame] here redraws only the strip when the room moves.
+ */
+private fun DrawScope.mirrorRoom(room: PaintedRoom, x: Int, platePx: Float) {
+    room.frame
+    val picture = room.picture ?: return
+    val w = size.width
+    val h = size.height
+    if (h <= 0f || platePx <= 0f) return
+    val rows = (picture.height * (h / platePx)).roundToInt().coerceIn(1, picture.height)
+    val box = Rect(x.toFloat(), 0f, x + w, h)
+    drawContext.canvas.saveLayer(box, Paint())
+    withTransform({ scale(1f, -1f, pivot = Offset(0f, h / 2f)) }) {
+        drawImage(
+            picture,
+            srcOffset = IntOffset(0, picture.height - rows),
+            srcSize = IntSize(picture.width, rows),
+            dstOffset = IntOffset(x, 0),
+            dstSize = IntSize(w.roundToInt(), h.roundToInt()),
+            filterQuality = FilterQuality.Low,
+        )
+    }
+    // The foot wash as it lies on the card, read upwards from the foot.
+    val wash = Array(MIRROR_SAMPLES) { i ->
+        val u = i / (MIRROR_SAMPLES - 1f)
+        u to Color.Black.copy(alpha = footWash(1f - u * h / platePx))
+    }
+    drawRect(Brush.verticalGradient(*wash, startY = 0f, endY = h), topLeft = Offset(x.toFloat(), 0f), size = Size(w, h))
+    drawRect(
+        Brush.verticalGradient(0f to Color.Black, 0.25f to Color.Black.copy(alpha = 0.84f), 0.5f to Color.Black.copy(alpha = 0.5f), 0.75f to Color.Black.copy(alpha = 0.16f), 1f to Color.Transparent, startY = 0f, endY = h),
+        topLeft = Offset(x.toFloat(), 0f),
+        size = Size(w, h),
+        blendMode = BlendMode.DstIn,
+    )
+    drawContext.canvas.restore()
+}
+
+/** The card's foot wash (`HomeFeatureCard.foot`) at [at] of the card's height from its top: clear, 0.25 at four
+ * tenths, 0.7 from where the writing starts to the foot. */
+private fun footWash(at: Float): Float = when {
+    at <= 0f -> 0f
+    at < 0.4f -> at / 0.4f * 0.25f
+    at < 0.68f -> 0.25f + (at - 0.4f) / 0.28f * 0.45f
+    else -> 0.7f
+}
+
+private const val MIRROR_SAMPLES = 9
 
 @Composable
 private fun BannerSleeve(cover: Any?, station: RadioStation?, list: Boolean, framed: FramedList?, logoStamp: String, images: ImageLoader) {

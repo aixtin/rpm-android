@@ -79,6 +79,7 @@ import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.PullToRefresh
 import com.rpm.player.phone.design.pinch
 import com.rpm.player.phone.design.Ink
+import com.rpm.player.phone.design.OverChrome
 import com.rpm.player.phone.design.PageHeading
 import com.rpm.player.phone.design.backdropSource
 import com.rpm.player.phone.design.chromeGlass
@@ -423,30 +424,34 @@ private fun Empty(lent: Boolean) {
  */
 @Composable
 internal fun <T> SortMenu(backdrop: Backdrop, choices: List<Pair<T, Int>>, order: T, onPick: (T) -> Unit, onClose: () -> Unit) {
-    // Back puts the menu down, as a tap outside it does, and does not leave the page under it.
-    BackHandler(onBack = onClose)
-    Box(Modifier.fillMaxSize().clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClose)) {
-        GlassCard(
-            backdrop,
-            Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 48.dp, end = 16.dp)
-                .width(230.dp),
-            radius = 14.dp,
-        ) {
-            Column(Modifier.padding(vertical = 6.dp)) {
-                for ((choice, label) in choices) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                            .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.RadioButton) { onPick(choice) }
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        BasicText(stringResource(label), Modifier.weight(1f), style = system(15f).copy(color = Color.White))
-                        if (choice == order) BasicText(Glyph.check, style = icon(13f).copy(color = Color.White))
+    // Over the tab bar and the mini player, as the iPhone's menu is: a tap anywhere outside it, the chrome included,
+    // only puts it down.
+    OverChrome {
+        // Back puts the menu down, as a tap outside it does, and does not leave the page under it.
+        BackHandler(onBack = onClose)
+        Box(Modifier.fillMaxSize().clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClose)) {
+            GlassCard(
+                backdrop,
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 48.dp, end = 16.dp)
+                    .width(230.dp),
+                radius = 14.dp,
+            ) {
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    for ((choice, label) in choices) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.RadioButton) { onPick(choice) }
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            BasicText(stringResource(label), Modifier.weight(1f), style = system(15f).copy(color = Color.White))
+                            if (choice == order) BasicText(Glyph.check, style = icon(13f).copy(color = Color.White))
+                        }
                     }
                 }
             }

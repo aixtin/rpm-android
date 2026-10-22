@@ -77,6 +77,7 @@ import com.rpm.player.phone.design.GlassField
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.Ink
 import com.rpm.player.phone.design.PageTitle
+import com.rpm.player.phone.design.OverChrome
 import com.rpm.player.phone.design.PullDownMenu
 import com.rpm.player.phone.design.PullItem
 import com.rpm.player.phone.design.backdropSource
@@ -207,7 +208,8 @@ fun RadioPage(
                     Picking.Which.Order ->
                         ORDERS.map { (order, label) -> PullItem(stringResource(label), ticked = order == settings.order) { tuner.update { it.copy(order = order) } } }
                 }
-                PullDownMenu(page, open.from, items, onDismiss = close)
+                // Over the tab bar and the mini player, as the iPhone's menu is.
+                OverChrome { PullDownMenu(page, open.from, items, onDismiss = close) }
             }
         }
     }

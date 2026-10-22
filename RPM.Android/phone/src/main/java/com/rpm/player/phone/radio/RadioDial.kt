@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -51,6 +52,7 @@ import com.rpm.player.core.R
 import com.rpm.player.core.radio.DialCard
 import com.rpm.player.core.radio.RadioStation
 import com.rpm.player.core.radio.StationSign
+import com.rpm.player.core.radio.countryName
 import com.rpm.player.phone.design.Ink
 import com.rpm.player.phone.design.pt
 import com.rpm.player.phone.design.system
@@ -159,7 +161,8 @@ internal fun RadioDial(stations: List<RadioStation>, tuned: String?, announced: 
                             change.consume()
                         }
                         current.getOrNull(at)?.let {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            // The iPhone's `Haptics.commit`: the action is done.
+                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                             tune(it)
                         }
                     }
@@ -212,9 +215,10 @@ internal fun RadioDial(stations: List<RadioStation>, tuned: String?, announced: 
 @Composable
 private fun Readout(under: RadioStation?, tuned: String?, announced: String?) {
     Row(
-        Modifier.fillMaxWidth().height(READOUT_BOTTOM.dp).padding(start = 12.dp, end = 12.dp, top = 10.dp),
+        // As tall as its text, at the top of the band the card leaves it, the badge centred on the two lines.
+        Modifier.fillMaxWidth().heightIn(max = READOUT_BOTTOM.dp).padding(start = 12.dp, end = 12.dp, top = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             BasicText(
@@ -226,7 +230,11 @@ private fun Readout(under: RadioStation?, tuned: String?, announced: String?) {
             val line = when {
                 under == null -> ""
                 tuned != null && under.answersTo(tuned) && !announced.isNullOrEmpty() -> announced
-                else -> under.detail(Locale.getDefault()).orEmpty()
+                // The country and the quality, spaced as the list's lines are.
+                else -> listOfNotNull(
+                    under.countryCode?.let { countryName(it, Locale.getDefault()) } ?: under.country?.takeIf { it.isNotBlank() },
+                    under.quality,
+                ).joinToString("  ·  ")
             }
             BasicText(line, maxLines = 1, overflow = TextOverflow.Ellipsis, style = system(11.5f).copy(color = Ink.white(0x99)))
         }

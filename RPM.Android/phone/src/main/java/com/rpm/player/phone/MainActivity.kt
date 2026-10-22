@@ -3,6 +3,7 @@ package com.rpm.player.phone
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
+import android.media.AudioManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -42,6 +43,9 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        // The volume keys move the music's volume whenever the app is in front, playing or not, as an iPhone's do in a
+        // music app. Without this a paused app's keys move the ringer.
+        volumeControlStream = AudioManager.STREAM_MUSIC
         setContent {
             // The backdrop every page's ground draws, chosen in the profile. Read here, once for the whole app, so a
             // choice shows on every page at once.

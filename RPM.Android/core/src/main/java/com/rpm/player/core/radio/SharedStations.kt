@@ -20,8 +20,17 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The saved stations the radio shows, and whether they are the person's own to change. */
-data class SavedStations(val stations: List<RadioStation>, val mine: Boolean)
+/**
+ * The saved stations the radio shows, and whether they are the person's own to change (the iPhone's `SavedStations`).
+ * On a shared collection, [reading] is set until its owner's stations have been read once, and [unreadable] when that
+ * read failed and none were read before. The list is empty in both, so a screen can tell "none saved" from "not known".
+ */
+data class SavedStations(
+    val stations: List<RadioStation>,
+    val mine: Boolean,
+    val reading: Boolean = false,
+    val unreadable: Boolean = false,
+)
 
 /**
  * Whose saved stations the radio shows: the person's own ([RadioFavorites]), or, while a collection
@@ -40,7 +49,8 @@ class SharedStations(
     own: StateFlow<List<RadioStation>>,
     private val scope: CoroutineScope,
 ) {
-    private data class Read(val user: String?, val byOwner: Map<String, List<RadioStation>>)
+    /** [failed] holds the owners whose read failed with nothing read for them before, so the radio can say so. */
+    private data class Read(val user: String?, val byOwner: Map<String, List<RadioStation>>, val failed: Set<String> = emptySet())
 
     private val held = MutableStateFlow(Read(null, emptyMap()))
     private val shelf = shelfOnScreen.map { it.shelf }.distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, Shelf.Own)
@@ -48,7 +58,18 @@ class SharedStations(
     val saved: StateFlow<SavedStations> = combine(shelf, own, held) { shelf, mine, read ->
         when (shelf) {
             Shelf.Own -> SavedStations(mine, mine = true)
-            is Shelf.Borrowed -> SavedStations(read.byOwner[shelf.ownerId].orEmpty(), mine = false)
+            is Shelf.Borrowed -> {
+                val known = read.byOwner[shelf.ownerId]
+                // The account is checked too: a list read for the account signed in before is not this one's.
+                val signedIn = auth.session.value?.userId
+                val mineToShow = known?.takeIf { read.user == signedIn }
+                SavedStations(
+                    mineToShow.orEmpty(),
+                    mine = false,
+                    reading = mineToShow == null && !(read.user == signedIn && shelf.ownerId in read.failed),
+                    unreadable = mineToShow == null && read.user == signedIn && shelf.ownerId in read.failed,
+                )
+            }
         }
     }.stateIn(scope, SharingStarted.Eagerly, SavedStations(emptyList(), mine = true))
 
@@ -72,12 +93,16 @@ class SharedStations(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "saved stations of ${owner.key} not read: $e")
+            if (auth.session.value?.userId != user) return
+            val was = held.value.takeIf { it.user == user } ?: Read(user, emptyMap())
+            // A failure does not replace a list an earlier read found.
+            if (owner.ownerId !in was.byOwner) held.value = was.copy(failed = was.failed + owner.ownerId)
             return
         }
         if (auth.session.value?.userId != user) return
         val stations = rows.filter { it.saved }.sortedBy { it.changedAt }.mapNotNull { it.station }
         val was = held.value.takeIf { it.user == user } ?: Read(user, emptyMap())
-        held.value = was.copy(byOwner = was.byOwner + (owner.ownerId to stations))
+        held.value = was.copy(byOwner = was.byOwner + (owner.ownerId to stations), failed = was.failed - owner.ownerId)
         Log.i(TAG, "${stations.size} saved stations of ${owner.key}")
     }
 

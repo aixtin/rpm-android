@@ -242,6 +242,23 @@ fun Player.playNext(tracks: List<Queued>) {
     addMediaItems(currentMediaItemIndex + 1, tracks.map { mediaItemOf(it.copy(upNext = true)) })
 }
 
+/**
+ * Puts [tracks], in order, straight after the track playing, and **starts nothing**: the iPhone's
+ * `Player.insertNext`, which its song menu's "Play next" calls. A song sent up next is a song asked for later. Into an
+ * empty queue they go as the queue, paused at its first song and not prepared, so nothing is read from the network
+ * until Play; Media3 has no queue without a current item, so that song is what the mini player shows. The TV keeps
+ * [playNext], which plays into an empty queue.
+ */
+fun Player.insertNext(tracks: List<Queued>) {
+    if (tracks.isEmpty()) return
+    val items = tracks.map { mediaItemOf(it.copy(upNext = true)) }
+    if (mediaItemCount == 0) {
+        setMediaItems(items, 0, /* startPositionMs = */ 0)
+        return
+    }
+    addMediaItems(currentMediaItemIndex + 1, items)
+}
+
 /** Puts [tracks] at the end of the queue, or plays them when nothing is queued. Marked as [playNext] marks them. */
 fun Player.addToQueue(tracks: List<Queued>) {
     if (tracks.isEmpty()) return

@@ -2,6 +2,8 @@ package com.rpm.player.phone
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import com.rpm.player.core.RpmApplication
 import com.rpm.player.core.Services
 import com.rpm.player.core.SessionOpening
@@ -36,7 +38,7 @@ class PhoneApplication : RpmApplication() {
      * while the browser is open.
      */
     val signIn: SignIn by lazy {
-        SignIn(services.auth, services.scope, bringBack = ::bringToFront)
+        SignIn(services.auth, services.scope, bringBack = ::bringToFront, online = ::online)
     }
 
     /**
@@ -66,6 +68,18 @@ class PhoneApplication : RpmApplication() {
     override fun sessionOpening(): SessionOpening = SessionOpening.Player(
         Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_SHOW_PLAYER, true),
     )
+
+    /** Whether the phone has a network that reaches the internet. With none, signing in says so without asking. */
+    private fun online(): Boolean {
+        val network = getSystemService(ConnectivityManager::class.java) ?: return true
+        // A phone that will not say is taken to be online: the request then fails, or does not, by itself.
+        val caps = try {
+            network.getNetworkCapabilities(network.activeNetwork)
+        } catch (_: SecurityException) {
+            return true
+        } ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
 
     /**
      * Brings the app back over the browser it opened. The Custom Tab runs in the app's task, above the

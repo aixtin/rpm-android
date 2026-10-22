@@ -42,11 +42,14 @@ data class Said(@StringRes val id: Int, val args: List<Any> = emptyList())
  * else's browser never reaches this app. A return to the app without the link is handled by [backFromBrowser].
  *
  * @param bringBack puts the app back in front of the browser once the browser's sign-in has finished.
+ * @param online whether the phone has a network at all. Without one no request is made, and the form says the phone
+ * is offline at once, as the iPhone's network gate does (`Gated`, `RPMError.offline`).
  */
 class SignIn(
     private val auth: AuthClient,
     private val scope: CoroutineScope,
     private val bringBack: () -> Unit,
+    private val online: () -> Boolean = { true },
 ) {
     /** A sign-in is under way; the form is disabled. */
     var busy by mutableStateOf(false)
@@ -99,9 +102,13 @@ class SignIn(
             trouble = Said(R.string.Login_NeedFields)
             return
         }
-        busy = true
         trouble = null
         notice = null
+        if (!online()) {
+            trouble = Said(R.string.Rpm_Net_Offline)
+            return
+        }
+        busy = true
         scope.launch {
             trouble = try {
                 when (val answer = auth.login(email, password)) {
@@ -131,10 +138,14 @@ class SignIn(
 
     fun withProvider(provider: Provider) {
         if (busy) return
-        busy = true
-        waitingForBrowser = true
         trouble = null
         notice = null
+        if (!online()) {
+            trouble = Said(R.string.Rpm_Net_Offline)
+            return
+        }
+        busy = true
+        waitingForBrowser = true
         browserShown = false
         val back = MutableStateFlow(false).also { this.back = it }
         val link = MutableStateFlow<String?>(null).also { this.link = it }

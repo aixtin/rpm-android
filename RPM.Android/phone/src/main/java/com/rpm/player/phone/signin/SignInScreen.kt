@@ -39,6 +39,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -165,6 +168,8 @@ private fun Card(signIn: SignIn, backdrop: Backdrop) {
                 value = email,
                 onValueChange = { email = it },
                 placeholder = stringResource(R.string.Login_Email),
+                // A password manager fills the pair, as iOS's `textContentType(.username)` and `.password` offer.
+                modifier = Modifier.semantics { contentType = ContentType.Username + ContentType.EmailAddress },
                 enabled = enabled,
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.None,
@@ -178,7 +183,7 @@ private fun Card(signIn: SignIn, backdrop: Backdrop) {
                 value = password,
                 onValueChange = { password = it },
                 placeholder = stringResource(R.string.Login_Password),
-                modifier = Modifier.focusRequester(passwordField),
+                modifier = Modifier.focusRequester(passwordField).semantics { contentType = ContentType.Password },
                 enabled = enabled,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { signIn.withPassword(email, password) }),
@@ -193,7 +198,7 @@ private fun Card(signIn: SignIn, backdrop: Backdrop) {
     }
 }
 
-/** Shows what went wrong. If nothing went wrong, shows what is being waited for. */
+/** Shows what went wrong; else news such as a deleted account; else what is being waited for. The iPhone's order. */
 @Composable
 private fun Line(signIn: SignIn) {
     val trouble = signIn.trouble

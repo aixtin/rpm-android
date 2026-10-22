@@ -52,7 +52,7 @@ import com.rpm.player.core.playback.QueueQuestion
 import com.rpm.player.core.playback.QueueStart
 import com.rpm.player.core.playback.Replacing
 import com.rpm.player.core.playback.Tapped
-import com.rpm.player.core.playback.playNext
+import com.rpm.player.core.playback.insertNext
 import com.rpm.player.core.playback.replacing
 import com.rpm.player.core.playback.start
 import com.rpm.player.core.library.Filed
@@ -86,6 +86,11 @@ import com.rpm.player.phone.profile.ProfileTab
 import com.rpm.player.phone.player.NowPlayingSheet
 import com.rpm.player.phone.library.LibraryPage
 import com.rpm.player.phone.library.FramedList
+import com.rpm.player.phone.library.WallStanding
+import com.rpm.player.core.library.CoverIndex
+import com.rpm.player.core.library.Home
+import com.rpm.player.core.library.Walls
+import com.rpm.player.core.library.shelf
 import com.rpm.player.phone.library.PlaylistPage
 import com.rpm.player.phone.library.RereadListsOnReturn
 import com.rpm.player.phone.library.rememberPlaylistWrites
@@ -112,13 +117,42 @@ fun Root(services: Services, settings: PhoneSettings, signIn: SignIn, controller
     val library by services.library.state.collectAsStateWithLifecycle()
 
     val shown = library
+    // Whether the read being waited for is a retry of one that failed. The app stays up for it, with the wall waiting,
+    // as the iPhone's does: a retry from the library tab does not throw the person back to the launch screen.
+    var afterFailure by remember { mutableStateOf(false) }
+    LaunchedEffect(shown) {
+        afterFailure = when (shown) {
+            is LibraryState.Failed -> true
+            is LibraryState.Loading -> afterFailure
+            else -> false
+        }
+    }
     when {
         session == null -> SignInScreen(signIn)
-        shown is LibraryState.Ready -> Shell(services, settings, shown, controller, sittingFrom)
-        shown is LibraryState.Failed -> Failed(onRetry = services.library::retry)
-        else -> Waiting(stringResource(R.string.Rpm_Library_Reading))
+        // A library that could not be read still opens the app, as on iPhone (`AccountStanding.showing` with the wall's
+        // `ReadStanding.trouble`): the radio works without it, and the library tab says what went wrong and offers a
+        // retry. One call for all three states, so the tab and the stacks stay as they were across the retry.
+        shown is LibraryState.Ready || shown is LibraryState.Failed || (shown is LibraryState.Loading && afterFailure) -> {
+            val ready = (shown as? LibraryState.Ready) ?: remember(shown.shelf) { nothingRead(shown.shelf) }
+            val wall = when (shown) {
+                is LibraryState.Ready -> WallStanding.Showing
+                is LibraryState.Failed -> WallStanding.Trouble
+                else -> WallStanding.Reading
+            }
+            Shell(services, settings, ready, controller, sittingFrom, wall)
+        }
+        shown is LibraryState.Loading -> Waiting(stringResource(R.string.Rpm_Library_Reading))
+        // Signed in, before the library has started: the iPhone's `starting`, the record alone.
+        else -> Waiting(null)
     }
 }
+
+/** A collection with nothing in it, which the app is drawn around while the library could not be read. */
+private fun nothingRead(shelf: Shelf) = LibraryState.Ready(
+    com.rpm.player.core.library.Collection.of(shelf, emptyList(), emptyMap(), emptyMap(), emptyList(), CoverIndex.Unknown),
+    Home(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList()),
+    Walls(emptyList(), emptyList()),
+)
 
 /**
  * The app, once there is something to show: a page, with the chrome floating over its bottom edge. The
@@ -134,7 +168,7 @@ fun Root(services: Services, settings: PhoneSettings, signIn: SignIn, controller
  * The app opens on home, as on iPhone.
  */
 @Composable
-private fun Shell(services: Services, settings: PhoneSettings, ready: LibraryState.Ready, controller: Player?, sittingFrom: Int) {
+private fun Shell(services: Services, settings: PhoneSettings, ready: LibraryState.Ready, controller: Player?, sittingFrom: Int, wall: WallStanding) {
     val backdrop = rememberBackdrop()
     val session by services.auth.session.collectAsStateWithLifecycle()
     val density = LocalDensity.current
@@ -180,7 +214,8 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             // A song is this account's when its own collection holds it. Another account's songs cannot be marked or
             // filed by this one.
             isMine = { collection.shelf == Shelf.Own && collection.tracksById.containsKey(it.rpmId) },
-            upNext = UpNext.Send { track -> controller?.playNext(listOf(queued(collection, track))) },
+            // Nothing starts, as on iPhone (`AppModel.playNext`): into an empty queue the song waits, paused.
+            upNext = UpNext.Send { track -> controller?.insertNext(listOf(queued(collection, track))) },
             // The writes run in the app's scope, so leaving the page does not cut one off half made.
             onMark = { track, on -> services.scope.launch { services.ownWriter.mark(track.rpmId, on) } },
             onFile = file,
@@ -397,6 +432,8 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                                     if (at >= 0) play(queueOf(collection.shelf, album, collection.cover(album), collection.disc(album)), at, Tapped.Song)
                                 },
                                 onMakePlaylist = playlistWrites::make,
+                                standing = wall,
+                                onRetry = services.library::retry,
                             )
                         }
                     }
@@ -418,6 +455,8 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                     said = now?.station?.said,
                     bottomRoom = chrome,
                     onTune = homeActions.onTune,
+                    // The saved stations of a shared collection are its owner's, and are never changed from here.
+                    onSave = { station -> if (services.radio.saved.value.mine) services.radio.favorites.toggle(station) },
                 )
                 // The downloads page wires `downloaded` and `onDownloads` once it exists.
                 Tab.Profile -> ProfileTab(services, settings, controller, bottomRoom = chrome, downloaded = 0 to 0L, onDownloads = null)
@@ -562,21 +601,9 @@ private fun Waiting(what: String?) {
         VinylGround()
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
             RecordSpinner(120.dp)
-            if (what != null) BasicText(what, style = system(13f).copy(color = Ink.white(0x99)))
-        }
-    }
-}
-
-/** The library could not be read. It shows the same two texts as the TV app, and a key to read it again. */
-@Composable
-private fun Failed(onRetry: () -> Unit) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        VinylGround()
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            BasicText(stringResource(R.string.Rpm_Library_Error), style = system(15f).copy(color = Ink.white(0xCC)))
-            GlassButton(onClick = onRetry, stretches = false) { style ->
-                BasicText(stringResource(R.string.Rpm_Library_Retry), style = style)
-            }
+            // The footnote size in iOS's secondary label colour, as the iPhone draws it.
+            if (what != null) BasicText(what, style = system(13f).copy(color = Ink.secondary))
+            LaunchReadout()
         }
     }
 }

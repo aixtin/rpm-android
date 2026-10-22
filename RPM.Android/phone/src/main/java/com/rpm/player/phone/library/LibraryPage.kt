@@ -56,6 +56,7 @@ import coil3.ImageLoader
 import com.rpm.player.core.R
 import com.rpm.player.core.library.AlbumOrdering
 import com.rpm.player.core.cloud.CloudTrack
+import com.rpm.player.core.cloud.Shelf
 import com.rpm.player.core.library.AlbumSort
 import com.rpm.player.core.library.ArtistWallItem
 import com.rpm.player.core.library.Artwork
@@ -66,6 +67,7 @@ import com.rpm.player.core.library.TrackList
 import com.rpm.player.phone.PhoneSettings
 import com.rpm.player.phone.player.QueueRead
 import com.rpm.player.phone.design.Backdrop
+import com.rpm.player.phone.design.GlassButton
 import com.rpm.player.phone.design.GlassCard
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.Ink
@@ -78,6 +80,7 @@ import com.rpm.player.phone.design.rememberBackdrop
 import com.rpm.player.phone.design.system
 import com.rpm.player.phone.ui.ArtistMark
 import com.rpm.player.phone.ui.MarkView
+import com.rpm.player.phone.ui.RecordSpinner
 import com.rpm.player.phone.ui.VinylGround
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -147,6 +150,8 @@ fun LibraryPage(
     playing: String?,
     onPlaySong: (SongSearch.SongHit) -> Unit,
     onMakePlaylist: suspend (name: String, folder: List<String>, tracks: List<CloudTrack>) -> String?,
+    standing: WallStanding = WallStanding.Showing,
+    onRetry: () -> Unit = {},
 ) {
     when (settings.libraryMode) {
         LibraryMode.Playlists -> {
@@ -227,7 +232,9 @@ fun LibraryPage(
                     when {
                         mode != LibraryMode.Albums -> Unit
                         searching && asked.isNotEmpty() -> SearchResults(asked, answer, ready.collection, images, playing, bottomRoom, onOpen, onPlaySong)
-                        ready.albums.isEmpty() -> Empty()
+                        standing == WallStanding.Reading -> Reading()
+                        standing == WallStanding.Trouble -> Failed(onRetry)
+                        ready.albums.isEmpty() -> Empty(lent = ready.collection.shelf != Shelf.Own)
                         else -> ordered?.let { wall ->
                             AlbumWall(wall, { ready.collection.cover(it) }, images, targetStride = 194.0, bottomRoom = bottomRoom, onOpen = onOpen)
                         }
@@ -316,13 +323,47 @@ internal fun ModeTabs(mode: LibraryMode, onMode: (LibraryMode) -> Unit, backdrop
     }
 }
 
-/** A collection that is known to be empty. It is not a collection that has not arrived yet. */
+/**
+ * The state of the wall, when it is not simply showing records: the iPhone's `ReadStanding`. **An empty list can mean
+ * three things**: the library is really empty, the read has not finished, or the read failed. Only the first is
+ * [Empty].
+ */
+enum class WallStanding { Showing, Reading, Trouble }
+
+/** The read is still in progress: the turning record, as the app opens with, because a wall still loading is not empty. */
 @Composable
-private fun Empty() {
+private fun Reading() {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
+        RecordSpinner(96.dp)
+        BasicText(stringResource(R.string.Rpm_Library_Loading), style = display(14f).copy(color = Ink.white(0x88)))
+    }
+}
+
+/** The library could not be read: why, and a key to read it again. A tab that fails in silence leaves the person waiting. */
+@Composable
+private fun Failed(onRetry: () -> Unit) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
+        BasicText(
+            stringResource(R.string.Rpm_Library_Error),
+            Modifier.widthIn(max = 300.dp),
+            style = display(14f).copy(color = Ink.white(0x88), textAlign = TextAlign.Center),
+        )
+        GlassButton(onClick = onRetry, stretches = false, height = 40.dp, radius = 10.dp, inset = 16.dp, size = 14f) { style ->
+            BasicText(stringResource(R.string.Rpm_Library_Retry), style = style)
+        }
+    }
+}
+
+/**
+ * A collection that is known to be empty. It is not a collection that has not arrived yet. The sentence depends on
+ * whose it is: telling a person to upload their library about a collection someone else lent them is no help.
+ */
+@Composable
+private fun Empty(lent: Boolean) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
         BasicText(Glyph.record, style = icon(44f).copy(color = Ink.white(0x3A)))
         BasicText(
-            stringResource(R.string.Rpm_Library_Empty),
+            stringResource(if (lent) R.string.Rpm_Share_EmptyShelf else R.string.Rpm_Library_Empty),
             Modifier.widthIn(max = 300.dp),
             style = display(14f).copy(color = Ink.white(0x88), textAlign = TextAlign.Center),
         )
@@ -337,6 +378,8 @@ private fun Empty() {
  */
 @Composable
 internal fun <T> SortMenu(backdrop: Backdrop, choices: List<Pair<T, Int>>, order: T, onPick: (T) -> Unit, onClose: () -> Unit) {
+    // Back puts the menu down, as a tap outside it does, and does not leave the page under it.
+    BackHandler(onBack = onClose)
     Box(Modifier.fillMaxSize().clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClose)) {
         GlassCard(
             backdrop,

@@ -4910,6 +4910,57 @@
     <!-- About screen: what SonoVault is asked for. -->
     <string name="Credits_Sonovault_Use">Información de álbumes, pistas y ediciones.</string>
 
+    <!-- About screen, Android app: what Kotlin is used for. -->
+    <string name="Credits_Kotlin_Use">El lenguaje en el que está escrita la aplicación de Android, y su biblioteca estándar.</string>
+
+    <!-- About screen, Android app: what kotlinx.coroutines is used for. -->
+    <string name="Credits_KotlinxCoroutines_Use">Ejecuta el trabajo de la aplicación en segundo plano, para que la pantalla nunca espere.</string>
+
+    <!-- About screen, Android app: what kotlinx.serialization is used for. -->
+    <string name="Credits_KotlinxSerialization_Use">Lee lo que envía el servidor de rpm y escribe lo que la aplicación guarda.</string>
+
+    <!-- About screen, Android app: what Jetpack Compose is used for. -->
+    <string name="Credits_Compose_Use">El framework de interfaz sobre el que está escrita la aplicación de Android.</string>
+
+    <!-- About screen, Android app: what the AndroidX libraries is used for. -->
+    <string name="Credits_AndroidX_Use">Las bibliotecas de soporte de Android: el ciclo de vida de la aplicación, la página de inicio de sesión en una pestaña del navegador y los perfiles que la hacen arrancar rápido.</string>
+
+    <!-- About screen, Android app: what AndroidX Media3 is used for. -->
+    <string name="Credits_Media3_Use">Reproduce cada canción y emisora, y muestra lo que suena en la pantalla de bloqueo y en los controles de los auriculares y del coche.</string>
+
+    <!-- About screen, Android app: what Media3's FFmpeg decoder is used for. -->
+    <string name="Credits_Media3Ffmpeg_Use">Pasa a FFmpeg las canciones que Android no puede descodificar por sí mismo.</string>
+
+    <!-- About screen, Android app: what FFmpeg, as built into the Android app is used for. -->
+    <string name="Credits_FfmpegAndroid_Use">Descodifica los archivos ALAC, AC-3 y E-AC-3 que se reproducen desde un ordenador de tu red doméstica.</string>
+
+    <!-- About screen, Android app: what Guava is used for. -->
+    <string name="Credits_Guava_Use">Utilidades sobre las que se basa Media3.</string>
+
+    <!-- About screen, Android app: what OkHttp is used for. -->
+    <string name="Credits_OkHttp_Use">Cada solicitud que la aplicación envía al servidor de rpm y a los catálogos.</string>
+
+    <!-- About screen, Android app: what Okio is used for. -->
+    <string name="Credits_Okio_Use">La lectura y escritura bajo OkHttp y el cargador de imágenes.</string>
+
+    <!-- About screen, Android app: what the Public Suffix List, inside OkHttp is used for. -->
+    <string name="Credits_PublicSuffixList_Use">Indica a OkHttp qué parte de una dirección web nombra el sitio.</string>
+
+    <!-- About screen, Android app: what Coil is used for. -->
+    <string name="Credits_Coil_Use">Carga y guarda las portadas, las fotografías y los logotipos de las emisoras.</string>
+
+    <!-- About screen, Android app: what AndroidSVG is used for. -->
+    <string name="Credits_AndroidSvg_Use">Dibuja los logotipos de emisoras que se publican como dibujos SVG.</string>
+
+    <!-- About screen, Android app: what Accompanist Drawable Painter is used for. -->
+    <string name="Credits_DrawablePainter_Use">Permite que el cargador de imágenes dibuje sus imágenes en Compose.</string>
+
+    <!-- About screen, Android app: what ML Kit face detection is used for. -->
+    <string name="Credits_MlKitFaces_Use">Encuentra las caras en las fotografías de los artistas, en el teléfono, para que un recorte las mantenga a la vista.</string>
+
+    <!-- About screen, Android app: what the libraries ML Kit needs (Firebase components, javax.inject) is used for. -->
+    <string name="Credits_MlKitParts_Use">Forma parte de aquello sobre lo que se basa ML Kit.</string>
+
     <!-- Kicker above the heading on every setup wizard step. -->
     <string name="Wizard_StepOf">Paso %1$s de %2$s</string>
 

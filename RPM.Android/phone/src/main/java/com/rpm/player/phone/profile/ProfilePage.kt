@@ -43,6 +43,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
@@ -71,7 +78,6 @@ import com.rpm.player.phone.design.Ink
 import com.rpm.player.phone.design.PageTitle
 import com.rpm.player.phone.design.backdropSource
 import com.rpm.player.phone.design.display
-import com.rpm.player.phone.design.dissolvesAtTop
 import com.rpm.player.phone.design.icon
 import com.rpm.player.phone.design.kicker
 import com.rpm.player.phone.design.rememberBackdrop
@@ -84,6 +90,9 @@ import java.text.DecimalFormat
 
 /** The page's side margin, the iPhone's `RPMLayout.margin`. */
 private val MARGIN = 20.dp
+
+/** How deep the fade is under the header, once the page has scrolled that far. */
+private val DISSOLVE = 30.dp
 
 /** The space between two keys on one row. */
 private val KEYS_APART = 10.dp
@@ -154,7 +163,7 @@ fun ProfilePage(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .dissolvesAtTop(statusBar + heading) { scroll.value.toFloat() }
+                    .dissolvesUnder(statusBar + heading, DISSOLVE) { scroll.value.toFloat() }
                     .verticalScroll(scroll)
                     .padding(horizontal = MARGIN)
                     .padding(top = statusBar + heading + 4.dp, bottom = FOOT + bottomRoom),
@@ -595,6 +604,7 @@ private fun Menu(backdrop: Backdrop, ask: MenuAsk, bottomRoom: Dp, onClose: () -
     val density = LocalDensity.current
     val gap = with(density) { 6.dp.roundToPx() }
     val foot = with(density) { (bottomRoom + 8.dp).roundToPx() }
+    val ceiling = with(density) { WindowInsets.statusBars.asPaddingValues(this).calculateTopPadding().roundToPx() + 8.dp.roundToPx() }
     Layout(
         content = {
             GlassCard(backdrop, radius = 14.dp) {
@@ -624,7 +634,15 @@ private fun Menu(backdrop: Backdrop, ask: MenuAsk, bottomRoom: Dp, onClose: () -
         val card = measurables.first().measure(Constraints.fixedWidth(width).copy(maxHeight = constraints.maxHeight))
         layout(constraints.maxWidth, constraints.maxHeight) {
             val below = ask.anchor.bottom.toInt() + gap
-            val y = if (below + card.height <= constraints.maxHeight - foot) below else (ask.anchor.top.toInt() - gap - card.height).coerceAtLeast(0)
+            val above = ask.anchor.top.toInt() - gap - card.height
+            val floor = constraints.maxHeight - foot - card.height
+            // Under the well where it fits, over it where that fits, and otherwise as near the well as the room between
+            // the status bar and the chrome allows, covering it, as an iPhone menu does.
+            val y = when {
+                below <= floor -> below
+                above >= ceiling -> above
+                else -> above.coerceIn(ceiling, maxOf(ceiling, floor))
+            }
             card.place(ask.anchor.left.toInt(), y)
         }
     }
@@ -644,3 +662,25 @@ internal fun bytes(count: Long): String {
         else -> DecimalFormat("0.##").format(count / (kilo * kilo * kilo)) + " GB"
     }
 }
+
+/**
+ * The scroll goes under the fixed header and dissolves there, as `DissolvingScroll` with `scrollsUnder` on iPhone:
+ * nothing of it shows above the header's foot ([top]), and below that it fades in over [depth], once it has scrolled
+ * that far. [scrolled] is read while drawing, so a scroll redraws without recomposing.
+ */
+private fun Modifier.dissolvesUnder(top: Dp, depth: Dp, scrolled: () -> Float): Modifier = this
+    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+    .drawWithContent {
+        drawContent()
+        val moved = scrolled()
+        if (moved <= 0f) return@drawWithContent
+        val foot = top.toPx()
+        drawRect(Color.Black, size = Size(size.width, foot), blendMode = BlendMode.DstOut)
+        val band = minOf(moved, depth.toPx())
+        drawRect(
+            Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = foot, endY = foot + band),
+            topLeft = Offset(0f, foot),
+            size = Size(size.width, band),
+            blendMode = BlendMode.DstIn,
+        )
+    }

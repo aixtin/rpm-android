@@ -18,7 +18,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -102,14 +106,15 @@ fun DeleteAccountSheet(email: String, backdrop: Backdrop, bottomRoom: Dp, commit
     BackHandler { if (!busy) onClose() }
     LaunchedEffect(Unit) { focus.requestFocus() }
 
+    // The keyboard covers the chrome, so the panel stands above whichever of the two is taller, not above both.
+    val keyboard = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0xB3 / 255f))
             .clickable(remember { MutableInteractionSource() }, indication = null) { if (!busy) onClose() }
             .statusBarsPadding()
-            .padding(bottom = bottomRoom)
-            .imePadding(),
+            .padding(bottom = maxOf(bottomRoom, keyboard)),
         contentAlignment = Alignment.Center,
     ) {
         GlassCard(
@@ -152,7 +157,12 @@ fun DeleteAccountSheet(email: String, backdrop: Backdrop, bottomRoom: Dp, commit
                     }
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Ink.white(0x1A)))
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // The body scrolls under the header when the keyboard leaves little room, as on the square Titan: the
+                // keys stay in reach and the field scrolls into view as it takes the keyboard.
+                Column(
+                    Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     BasicText(stringResource(R.string.Account_DeleteBody), style = display(13f).copy(color = Ink.white(0xD9)))
                     BasicText(stringResource(R.string.Account_DeleteTypeEmail, email), style = display(13f).copy(color = Ink.white(0xD9)))
                     GlassField(

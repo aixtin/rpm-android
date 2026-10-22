@@ -1855,6 +1855,9 @@
     <!-- The entry in the speaker picker that brings playback back to the phone. -->
     <string name="Rpm_Cast_ThisPhone">Dieses iPhone</string>
 
+    <!-- Row in the Android phone's speaker picker that plays on the phone itself. Rpm_Cast_ThisPhone says iPhone. -->
+    <string name="Rpm_Cast_ThisAndroidPhone">Dieses Telefon</string>
+
     <!-- Android TV: the first entry in the cast menu over the player. Picking it brings the music back to the TV from a Cast device. -->
     <string name="Tv_Cast_ThisTv">Dieser Fernseher</string>
 
@@ -5249,6 +5252,9 @@
     <!-- Title of the dialog that removes one downloaded album from the iPhone. -->
     <string name="Rpm_Download_RemoveQuestion">Dieses Album vom iPhone entfernen? Es bleibt in deiner Cloud-Bibliothek.</string>
 
+    <!-- Android phone: title of the dialog that removes one downloaded album from the phone. Rpm_Download_RemoveQuestion says iPhone. -->
+    <string name="Phone_Download_RemoveQuestion">Dieses Album vom Handy entfernen? Es bleibt in deiner Cloud-Bibliothek.</string>
+
     <!-- Heading of the downloads card on the iPhone profile tab, and of the downloads list. -->
     <string name="Rpm_Downloads_Title">Downloads</string>
 
@@ -5284,6 +5290,9 @@
 
     <!-- Title of the dialog that removes several downloaded albums from the iPhone. -->
     <string name="Rpm_Downloads_RemoveQuestion">%1$s Alben vom iPhone entfernen? Sie bleiben in deiner Cloud-Bibliothek.</string>
+
+    <!-- Android phone: title of the dialog that removes several downloaded albums from the phone. {0} is how many. Rpm_Downloads_RemoveQuestion says iPhone. -->
+    <string name="Phone_Downloads_RemoveQuestion">%1$s Alben vom Handy entfernen? Sie bleiben in deiner Cloud-Bibliothek.</string>
 
     <!-- Empty state of the iPhone downloads list. -->
     <string name="Rpm_Downloads_Empty">Noch keine Downloads. Öffne ein Album und tippe auf die Download-Taste, um es ohne Internetverbindung zu hören.</string>
@@ -6157,12 +6166,4 @@
 
     <!-- Line under the title of the TV player's Now playing drawer while rearranging is on. OK, Up and Down are the TV remote's keys. -->
     <string name="Tv_QueueRearrangeHint">OK nimmt einen Titel auf, Hoch und Runter verschieben ihn, OK legt ihn ab.</string>
-    <!-- Row in the Android phone's speaker picker that plays on the phone itself. -->
-    <string name="Rpm_Cast_ThisAndroidPhone">Dieses Telefon</string>
-
-    <!-- Android phone: title of the dialog that removes one downloaded album from the phone. Rpm_Download_RemoveQuestion says iPhone. -->
-    <string name="Phone_Download_RemoveQuestion">Dieses Album vom Handy entfernen? Es bleibt in deiner Cloud-Bibliothek.</string>
-
-    <!-- Android phone: title of the dialog that removes several downloaded albums from the phone. {0} is how many. Rpm_Downloads_RemoveQuestion says iPhone. -->
-    <string name="Phone_Downloads_RemoveQuestion">%1$s Alben vom Handy entfernen? Sie bleiben in deiner Cloud-Bibliothek.</string>
 </resources>

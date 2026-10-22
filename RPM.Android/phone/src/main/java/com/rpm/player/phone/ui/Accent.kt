@@ -1,5 +1,6 @@
 package com.rpm.player.phone.ui
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,13 +34,16 @@ fun rememberAccent(picture: Any?, images: ImageLoader): Rgb? {
     var accent by remember(picture) { mutableStateOf<Rgb?>(null) }
     LaunchedEffect(picture) {
         if (picture == null) return@LaunchedEffect
-        accent = withContext(Dispatchers.Default) {
-            val request = ImageRequest.Builder(context).data(picture).size(48).allowHardware(false).build()
-            val bitmap = (images.execute(request) as? SuccessResult)?.image?.toBitmap() ?: return@withContext null
-            CoverColor.read(bitmap).dominant?.let(RpmPalette::nearest)
-        }
+        accent = accentOf(context, picture, images)
     }
     return accent
+}
+
+/** The same accent read once, for a caller that must have it before it changes what it draws (the stage's record). */
+suspend fun accentOf(context: Context, picture: Any, images: ImageLoader): Rgb? = withContext(Dispatchers.Default) {
+    val request = ImageRequest.Builder(context).data(picture).size(48).allowHardware(false).build()
+    val bitmap = (images.execute(request) as? SuccessResult)?.image?.toBitmap() ?: return@withContext null
+    CoverColor.read(bitmap).dominant?.let(RpmPalette::nearest)
 }
 
 /**

@@ -54,6 +54,12 @@ class Portraits(private val context: Context, private val images: ImageLoader, p
     private val cuts = LinkedHashMap<Cut, Bitmap>()
     private val settled = HashMap<Ask, Pair<String, Fit>>()
 
+    /**
+     * The backdrop each artist was left on in the stage's deck, by artist, as its address. It is kept across launches,
+     * as the iPhone's `BackdropPicks`: it is which photograph of an artist looks best, not the person's data.
+     */
+    private val picks by lazy { context.getSharedPreferences(PICKS, Context.MODE_PRIVATE) }
+
     private val detector by lazy {
         FaceDetection.getClient(FaceDetectorOptions.Builder().setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST).build())
     }
@@ -95,6 +101,41 @@ class Portraits(private val context: Context, private val images: ImageLoader, p
         // Nothing else can be shown. This result is not stored, because a backdrop that fails to load now may load
         // later.
         return covered?.let { cut(it, scene, Fit.FillFromTop) }
+    }
+
+    // ── the stage's deck (`BackdropStore.count`, `backdrop(at:)`, `opening`, `remember` on iPhone) ──
+
+    /** How many backdrops the artist has. Zero is the usual answer for an artist with none. */
+    suspend fun count(artist: String, album: String): Int =
+        if (artist.isBlank()) 0 else artwork.of(artist, album)?.backgrounds?.size ?: 0
+
+    /**
+     * The artist's backdrop [at], cut for [scene] around its faces. Null out of range, where it could not be read, or
+     * before the frame is laid out. The squares are not part of the set: they are for the pages about the artist.
+     */
+    suspend fun backdrop(artist: String, album: String, at: Int, scene: ArtScene): Bitmap? {
+        if (artist.isBlank() || at < 0 || !scene.isLaidOut) return null
+        val url = artwork.of(artist, album)?.backgrounds?.getOrNull(at) ?: return null
+        return cut(url, scene, Fit.FindTheFace)
+    }
+
+    /**
+     * Which backdrop the deck opens on: the one the person last left this artist on, and the first otherwise. The
+     * iPhone also judges the first few crops for the best one the first time; this app has no reader for that and
+     * opens on the first.
+     */
+    suspend fun opening(artist: String, album: String): Int {
+        if (artist.isBlank()) return 0
+        val urls = artwork.of(artist, album)?.backgrounds ?: return 0
+        val picked = withContext(Dispatchers.IO) { picks.getString(artist.lowercase(), null) } ?: return 0
+        return urls.indexOf(picked).coerceAtLeast(0)
+    }
+
+    /** Writes down where the person left this artist: a landing by hand, never a picture fetched ahead. */
+    suspend fun leftOn(artist: String, album: String, at: Int) {
+        if (artist.isBlank()) return
+        val url = artwork.of(artist, album)?.backgrounds?.getOrNull(at) ?: return
+        withContext(Dispatchers.IO) { picks.edit().putString(artist.lowercase(), url).apply() }
     }
 
     private suspend fun cut(url: String, scene: ArtScene, fit: Fit): Bitmap? {
@@ -172,6 +213,9 @@ class Portraits(private val context: Context, private val images: ImageLoader, p
 
     private companion object {
         const val TAG = "rpm.portraits"
+
+        /** The file the deck's picks are kept in. */
+        const val PICKS = "rpm.backdrop.picks"
 
         /**
          * Sizes in pixels: the longest edge a photograph is read at, the longest edge of the copy faces are found on,

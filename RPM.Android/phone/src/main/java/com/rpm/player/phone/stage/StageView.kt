@@ -1,9 +1,7 @@
 package com.rpm.player.phone.stage
 
-import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -11,7 +9,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -40,7 +37,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -54,7 +50,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -96,6 +91,14 @@ import com.rpm.player.phone.player.Speakers
 import com.rpm.player.core.cast.CastState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rpm.player.phone.ui.RecordDisc
+import com.rpm.player.phone.ui.VinylPressing
+import com.rpm.player.phone.ui.accentOf
+import com.rpm.player.phone.ui.color
+import com.rpm.player.phone.player.BusyKey
+import com.rpm.player.phone.player.isBusy
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import com.rpm.player.phone.ui.VinylGround
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -133,7 +136,10 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
     val playingOn = (castState as? CastState.On)?.device?.name
     var idle by remember { mutableStateOf<Job?>(null) }
     var columnHeight by remember { mutableIntStateOf(0) }
-    var picture by remember { mutableStateOf<Bitmap?>(null) }
+    // The artist's photographs, paged with a swipe (`BackdropDeck` on iPhone).
+    val stageDensity = LocalDensity.current.density
+    val deck = remember { BackdropDeck(scope, stageDensity) }
+    DisposableEffect(Unit) { onDispose { deck.clear() } }
 
     HideSystemBars()
     // Back takes the phone back to portrait, as the portrait key does. A stage is not a page that Back pops.
@@ -148,7 +154,7 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
         if (settings.pinned || showingLooks || showingSpeakers) return
         // The countdown hides the chrome only when there is something worth seeing behind it: a running look or the
         // artist's photograph. A tap is different: a person who taps the text away has decided to see the ground.
-        if (!asked && look == StageLook.Artwork && picture == null) return
+        if (!asked && look == StageLook.Artwork && deck.picture == null) return
         chromeUp = false
         idle?.cancel()
         idle = null
@@ -183,23 +189,45 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
         Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
             VinylGround()
             if (look == StageLook.Artwork) {
-                ArtistPicture(now, width.value.toDouble(), height.value.toDouble(), columnHeight / density.density.toDouble()) { picture = it }
+                ArtistPicture(now, deck, width.value.toDouble(), height.value.toDouble(), columnHeight / density.density.toDouble())
             }
         }
         if (look != StageLook.Artwork) StageSurface(look, tap, Modifier.fillMaxSize())
 
         Deck(now, images, chromeUp, height.value)
 
-        // A tap anywhere on the frame brings the chrome and the record back. It is a sibling under the chrome, not a
-        // gesture around it, so the keys above it take their own touches first.
+        // A tap anywhere on the frame brings the chrome and the record back, and a swipe pages the artist's
+        // photographs. It is a sibling under the chrome, not a gesture around it, so the keys above it take their own
+        // touches first. **One or the other, never both**, as on iPhone: a finger that moves 12 dp is a swipe and wins
+        // outright, so paging a photograph does not also bring the chrome back; a finger that never moves is a tap.
+        val frameWidth = with(density) { width.toPx() }
         Box(
             Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
+                .pointerInput(frameWidth) {
+                    val slop = 12.dp.toPx()
                     awaitEachGesture {
-                        awaitFirstDown()
-                        val up = liftedAsTap()
-                        if (up) tapped()
+                        val down = awaitFirstDown()
+                        val tracker = VelocityTracker()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+                        var swiping = false
+                        var moved = 0f
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            tracker.addPosition(change.uptimeMillis, change.position)
+                            val off = change.position - down.position
+                            if (!swiping && off.getDistance() > slop) swiping = true
+                            if (swiping) {
+                                moved = off.x
+                                deck.dragged(moved, frameWidth)
+                                change.consume()
+                            }
+                            if (!change.pressed) {
+                                if (swiping) deck.released(moved, tracker.calculateVelocity().x, frameWidth) else tapped()
+                                break
+                            }
+                        }
                     }
                 },
         )
@@ -277,22 +305,6 @@ fun StageView(now: NowPlaying, player: Player, images: ImageLoader, tap: AudioTa
     }
 }
 
-/**
- * Waits for the finger to lift, and says whether this was a tap: lifted within the system's tap time without having
- * moved more than the touch slop. A drag across the stage is not a tap, so paging or a slip of the finger does not
- * bring the chrome back.
- */
-private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.liftedAsTap(): Boolean {
-    val slop = viewConfiguration.touchSlop
-    var start: androidx.compose.ui.geometry.Offset? = null
-    while (true) {
-        val event = awaitPointerEvent()
-        val change = event.changes.firstOrNull() ?: return false
-        if (start == null) start = change.previousPosition
-        if ((change.position - start).getDistance() > slop) return false
-        if (!change.pressed) return true
-    }
-}
 
 /** How long the chrome stays up when nothing is touched. */
 private const val IDLE_MS = 6_000L
@@ -323,11 +335,12 @@ private val COVER_EDGE = 64.dp
  * after a few seconds, because while it is shown a face behind it would be hidden. A station has no artist, so its
  * name is asked for, and the catalogues return what they have for it.
  *
- * The iPhone pages through up to eight of the artist's photographs with a swipe (`BackdropDeck`); this shows the
- * one the crop chose.
+ * Up to eight of the artist's photographs are laid out in a deck the person pages through with a swipe
+ * ([BackdropDeck]). The deck is loaded per artist and frame, not per track: every record of one artist shows the
+ * photograph that is up.
  */
 @Composable
-private fun ArtistPicture(now: NowPlaying, width: Double, height: Double, columnHeight: Double, onPicture: (Bitmap?) -> Unit) {
+private fun ArtistPicture(now: NowPlaying, deck: BackdropDeck, width: Double, height: Double, columnHeight: Double) {
     val portraits = (LocalContext.current.applicationContext as PhoneApplication).portraits
     val artist = now.station?.name ?: now.artist
     // The column is measured including its foot gap. Until it is measured, nothing is fetched: a crop for the wrong
@@ -339,14 +352,11 @@ private fun ArtistPicture(now: NowPlaying, width: Double, height: Double, column
         }
     }
     // Keyed on the artist, not the track: every record of one artist shows the same photograph.
-    val photo by produceState<ImageBitmap?>(null, artist.lowercase(), scene) {
-        val cut = scene?.let { portraits.portrait(artist, now.album, it) }
-        value = cut?.asImageBitmap()
-        onPicture(cut)
+    LaunchedEffect(artist.lowercase(), scene) {
+        scene?.let { deck.load(portraits, artist, now.album, it) }
     }
-    Crossfade(photo, animationSpec = tween(350), label = "stage picture") { shown ->
-        if (shown != null) Image(shown, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-    }
+    val frame = with(LocalDensity.current) { width.toFloat() * density }
+    StagePictures(deck, frame, Modifier.fillMaxSize())
 }
 
 /**
@@ -363,6 +373,9 @@ private fun Deck(now: NowPlaying, images: ImageLoader, chromeUp: Boolean, height
     val density = LocalDensity.current
     val diameter = (heightDp * DISC_DIAMETER).dp
     var worn by remember { mutableStateOf<ImageBitmap?>(null) }
+    // The record is pressed in the cover's accent, and in the house colour without one (`VinylPressing` with
+    // `art.accent.base` on iPhone). It changes with the face, while the record is away.
+    var hue by remember { mutableStateOf<Int?>(VinylPressing.HOUSE_HUE) }
     val aloft = remember { Animatable(1f) }
     val away by animateFloatAsState(if (chromeUp) 0f else 1f, tween(300, easing = LinearOutSlowInEasing), label = "disc away")
     val wanted = now.album to now.cover?.keys?.firstOrNull()
@@ -373,8 +386,13 @@ private fun Deck(now: NowPlaying, images: ImageLoader, chromeUp: Boolean, height
             val request = ImageRequest.Builder(context).data(cover).size(edge).build()
             (images.execute(request) as? SuccessResult)?.image?.toBitmap()?.asImageBitmap()
         }
+        val accent = now.cover?.let { accentOf(context, it, images) }
+        val pressing = accent?.color()?.toArgb() ?: VinylPressing.HOUSE_HUE
+        // Press the vinyl first, then change the face, so the record never lands black.
+        VinylPressing.press(context, pressing)
         if (aloft.value < 1f) aloft.animateTo(1f, tween(FLIGHT_MS, easing = FastOutSlowInEasing))
         worn = label
+        hue = pressing
         aloft.animateTo(0f, tween(FLIGHT_MS, easing = FastOutSlowInEasing))
     }
 
@@ -399,6 +417,7 @@ private fun Deck(now: NowPlaying, images: ImageLoader, chromeUp: Boolean, height
                 },
             spinning = chromeUp && now.advancing,
             label = worn,
+            hue = hue,
         )
     }
 }
@@ -564,9 +583,12 @@ private fun Transport(now: NowPlaying, player: Player, onPressed: () -> Unit) {
             player.seekToPrevious()
             onPressed()
         }
-        Key(if (now.playing) Glyph.pause else Glyph.play, 20f, Color.White, stringResource(R.string.Transport_PlayPause), enabled = true) {
-            toggle(player)
-            onPressed()
+        // A ring in place of the glyph while the player waits, as the iPhone's stage shows it.
+        BusyKey(now.isBusy, ring = 20.dp) {
+            Key(if (now.playing) Glyph.pause else Glyph.play, 20f, Color.White, stringResource(R.string.Transport_PlayPause), enabled = true) {
+                toggle(player)
+                onPressed()
+            }
         }
         Key(Glyph.forward, 16f, Ink.white(0xB8), stringResource(R.string.Transport_Next), enabled = !onStation && player.hasNextMediaItem()) {
             player.seekToNext()

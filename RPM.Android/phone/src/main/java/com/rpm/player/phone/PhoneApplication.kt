@@ -53,6 +53,9 @@ class PhoneApplication : RpmApplication() {
         super.onCreate()
         account = Account(this, services, settings, onDeleted = { signIn.notice = Said(com.rpm.player.core.R.string.Account_DeletedBody) })
         account.begin()
+        // The player follows the same reading as the offline bar: offline, only what is on the phone plays. Set here,
+        // before the playback service can start.
+        services.line = line
     }
 
     /** Artists' photographs, cropped around their faces. Kept for the life of the app. */

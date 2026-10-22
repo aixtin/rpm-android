@@ -105,6 +105,10 @@ class DownloadBook(private val root: File, private val clock: () -> Long = Syste
     /** For the player, on a loader thread: the file, if it is still there. */
     override fun fileOf(rpmId: String): File? = held(rpmId)?.file?.takeIf { it.isFile }
 
+    /** For the player's offline rule, on the main thread: what the manifest says, without the disk. A file removed
+     * behind the book's back is found when it is opened. */
+    override fun holds(rpmId: String): Boolean = locked { rpmId in copies }
+
     /** Every album that was asked for, newest first. */
     val all: List<Album> get() = locked { albums.values.sortedByDescending { it.asked } }
 

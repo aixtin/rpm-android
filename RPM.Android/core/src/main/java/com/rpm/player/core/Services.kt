@@ -74,8 +74,16 @@ class Services(
     val levelling: Levelling,
     tunerOpensOn: com.rpm.player.core.radio.TunerOpensOn,
     /** The tracks downloaded to this device, which play from their files. The phone's downloads; none on the TV. */
-    copies: com.rpm.player.core.playback.LocalCopies = com.rpm.player.core.playback.LocalCopies.None,
+    val copies: com.rpm.player.core.playback.LocalCopies = com.rpm.player.core.playback.LocalCopies.None,
 ) {
+    /**
+     * The settled network reading of an app that keeps downloads, which the player follows offline
+     * ([com.rpm.player.core.playback.OfflinePlayback]): only what is on the device plays, and a streamed record stops when
+     * the network goes. Set by the phone as it starts, before the playback service can be made; null on the TV, whose
+     * player streams everything and never stands still for want of a network.
+     */
+    @Volatile var line: kotlinx.coroutines.flow.StateFlow<com.rpm.player.core.net.Reach>? = null
+
     private val clock: () -> Long = System::currentTimeMillis
 
     /** Lives as long as the process: the library load and the session watch run here. */

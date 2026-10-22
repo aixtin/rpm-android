@@ -59,6 +59,7 @@ import androidx.media3.common.util.Util
 import coil3.ImageLoader
 import com.rpm.player.core.R
 import com.rpm.player.core.playback.NowPlaying
+import com.rpm.player.core.playback.PlaybackFailure
 import com.rpm.player.core.playback.rememberPosition
 import com.rpm.player.phone.design.Backdrop
 import com.rpm.player.phone.design.Glyph
@@ -111,7 +112,10 @@ fun MiniPlayer(now: NowPlaying, player: Player, images: ImageLoader, backdrop: B
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 // Each line scrolls through once if it does not fit, as the iPhone's `OnceTicker` does.
                 OnceTicker(title(now), display(14f).copy(color = Color.White))
-                OnceTicker(said(now), display(11f).copy(color = Ink.white(0x88)))
+                // When a record stops because there is no network, the reason replaces the artist, because this strip
+                // is what the person sees at that moment.
+                val offline = if (now.failure == PlaybackFailure.Offline) stringResource(R.string.Rpm_Playback_Offline) else null
+                OnceTicker(offline ?: said(now), display(11f).copy(color = Ink.white(0x88)))
             }
             Row {
                 Key(Glyph.backward, stringResource(R.string.Transport_Previous), enabled = !onStation) { player.seekToPrevious() }

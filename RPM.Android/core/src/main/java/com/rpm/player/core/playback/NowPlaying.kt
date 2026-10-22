@@ -49,6 +49,9 @@ data class NowPlaying(
     /** When [positionMs] was read, on the `SystemClock.uptimeMillis` clock, so a reader can carry the
      * position forward between reads while playing. */
     val readAtMs: Long,
+    /** Why the player stands still, as the playback service says it ([PlaybackFailure.EXTRA]): on the phone, that it
+     * is offline. Always [PlaybackFailure.None] on the TV. */
+    val failure: PlaybackFailure = PlaybackFailure.None,
 ) {
     /** The position now, carried forward from the last read while it advances. */
     fun positionAt(uptimeMs: Long): Long =
@@ -172,6 +175,7 @@ private fun read(player: Player): NowPlaying? {
         failed = player.playerError != null,
         station = station,
         readAtMs = android.os.SystemClock.uptimeMillis(),
+        failure = PlaybackFailure.of((player as? MediaController)?.sessionExtras?.getString(PlaybackFailure.EXTRA)),
     )
 }
 

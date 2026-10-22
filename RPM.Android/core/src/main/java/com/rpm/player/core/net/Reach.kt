@@ -46,6 +46,13 @@ class NetworkReach(private val context: Context) {
     @Volatile private var capabilities: NetworkCapabilities? = null
     @Volatile private var online = true
 
+    /**
+     * Whether the system refuses this app the default network although the network is there: Data Saver for an app in
+     * the background, a firewall rule, a battery restriction. The app cannot reach anything then, so it is offline as
+     * far as anything it does is concerned, whatever the network itself can reach.
+     */
+    @Volatile private var blocked = false
+
     /** The default network the readings are about. The loss of any other one is not news. */
     @Volatile private var network: Network? = null
     private var started = false
@@ -60,6 +67,8 @@ class NetworkReach(private val context: Context) {
         connectivity.registerDefaultNetworkCallback(
             object : ConnectivityManager.NetworkCallback() {
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    // A new default network reports its own blocked status straight after this.
+                    if (network != this@NetworkReach.network) blocked = false
                     this@NetworkReach.network = network
                     capabilities = caps
                     online = true
@@ -71,6 +80,13 @@ class NetworkReach(private val context: Context) {
                     if (this@NetworkReach.network != null && network != this@NetworkReach.network) return
                     capabilities = null
                     online = false
+                    blocked = false
+                    publish()
+                }
+
+                override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+                    if (this@NetworkReach.network != null && network != this@NetworkReach.network) return
+                    this@NetworkReach.blocked = blocked
                     publish()
                 }
             },
@@ -92,6 +108,6 @@ class NetworkReach(private val context: Context) {
         // No network reported yet: metered, as in [Reach.UNKNOWN].
         val metered = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) != true
         val saver = connectivity.restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
-        current.value = Reach(isOnline = online, costsData = metered, isConstrained = saver && metered)
+        current.value = Reach(isOnline = online && !blocked, costsData = metered, isConstrained = saver && metered)
     }
 }

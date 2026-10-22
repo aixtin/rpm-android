@@ -13,6 +13,12 @@ fun interface LocalCopies {
     /** The file that holds [rpmId], or null when this device has none. */
     fun fileOf(rpmId: String): File?
 
+    /**
+     * Whether this device holds [rpmId], asked on the main thread by the player's offline rule ([OfflinePlayback]) for
+     * every track of a queue it looks along. A book that keeps its list in memory answers without the disk.
+     */
+    fun holds(rpmId: String): Boolean = fileOf(rpmId) != null
+
     companion object {
         /** No downloads: the TV, which streams everything. */
         val None = LocalCopies { null }

@@ -487,7 +487,10 @@ private fun Needle(now: NowPlaying, player: Player, playingOn: String?) {
     val position by rememberPosition(now)
     var scrubbing by remember { mutableStateOf<Long?>(null) }
     val clocks = display(11f).copy(color = Ink.white(0x88))
+    // What went wrong comes first, and the player's own reason before its error: offline is the one the person can fix.
+    val trouble = now.failure.said
     val status = when {
+        trouble != null -> stringResource(trouble)
         now.failed -> stringResource(R.string.Rpm_Playback_Failed)
         now.station?.reconnecting == true -> stringResource(R.string.Radio_Reconnecting)
         now.isBusy -> stringResource(R.string.Rpm_Playback_Buffering)

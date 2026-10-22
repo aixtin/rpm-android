@@ -72,6 +72,9 @@ class PlaybackService : MediaSessionService() {
     private val sitting = Sitting()
     private var attempting = false
 
+    /** What plays without a network, on a device that keeps downloads; null on the TV ([com.rpm.player.core.Services.line]). */
+    private var offline: OfflinePlayback? = null
+
     // A play is the signed-in account's. One counted with nobody signed in (the session ended in the
     // second before the reading) is not kept.
     private fun bankPlay(play: TrackCounter.Counted) {
@@ -137,7 +140,13 @@ class PlaybackService : MediaSessionService() {
         }
 
         val player = ExoPlayer.Builder(this, renderers)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(opened).setLoadErrorHandlingPolicy(LiveStreamRetries()))
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(opened).setLoadErrorHandlingPolicy(
+                    // A track that is not on the phone waits for the network instead of failing (OfflineRetries). On the
+                    // TV, which has no reading, it is never offline.
+                    OfflineRetries(LiveStreamRetries(), offline = { services.line?.value?.isOnline == false }, services.copies),
+                ),
+            )
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
                 /* handleAudioFocus = */ true,
@@ -160,6 +169,7 @@ class PlaybackService : MediaSessionService() {
             SessionOpening.LauncherEntry -> Unit
         }
         session = builder.build()
+        offline = services.line?.let { line -> OfflinePlayback(player, line, services.copies, scope, ::publishExtras).also { it.attach() } }
         services.casting.attach(player)
         services.sleep.attach(player)
         scope.launch {
@@ -181,6 +191,8 @@ class PlaybackService : MediaSessionService() {
                 // A computer that went away, or a download removed while it played: the cloud has the track.
                 val failed = sources.sourceOf(mediaId)
                 if (failed !is TrackSource.Computer && failed !is TrackSource.Local) return
+                // Offline the cloud cannot have it either; the error stands.
+                if (offline?.isOffline == true) return
                 sources.useCloud(mediaId)
                 player.prepare()
             }
@@ -329,6 +341,7 @@ class PlaybackService : MediaSessionService() {
             Bundle().apply {
                 putBoolean(StationReconnect.EXTRA_ATTEMPTING, attempting)
                 putInt(Sitting.EXTRA_FROM, sitting.from)
+                offline?.let { putString(PlaybackFailure.EXTRA, it.failure.name) }
             },
         )
     }
@@ -442,7 +455,12 @@ class PlaybackService : MediaSessionService() {
             startIndex: Int,
             startPositionMs: Long,
         ): ListenableFuture<MediaItemsWithStartPosition> {
-            sitting.handed(mediaItems.map { it.mediaId }, if (startIndex == C.INDEX_UNSET) 0 else startIndex, idsOf(mediaSession.player))
+            val asked = if (startIndex == C.INDEX_UNSET) 0 else startIndex
+            // Offline, a list starts at the first of its tracks from there that is on the phone (OfflinePlayback).
+            val from = offline?.startAt(mediaItems, asked) ?: asked
+            offline?.started()
+            sitting.handed(mediaItems.map { it.mediaId }, from, idsOf(mediaSession.player))
+            if (from != asked) return super.onSetMediaItems(mediaSession, controller, mediaItems, from, 0)
             return super.onSetMediaItems(mediaSession, controller, mediaItems, startIndex, startPositionMs)
         }
 

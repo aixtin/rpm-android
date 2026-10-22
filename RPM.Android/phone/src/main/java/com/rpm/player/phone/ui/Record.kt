@@ -45,6 +45,13 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import com.rpm.player.core.R as CoreR
+import coil3.ImageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.toBitmap
+import com.rpm.player.core.library.DiscArt
+import com.rpm.player.core.library.DiscScan
 
 // ── the wordmark ──
 
@@ -217,7 +224,13 @@ enum class Halo { Round }
  * turning would not show, and a still ring keeps the light where the lamp is.
  *
  * The label is the album's sleeve when [label] is given, as on the iPhone's stage. Otherwise it shows the rpm mark at
- * its dim strength, pressed in rather than printed on. A photo of a disc is not supported yet.
+ * its dim strength, pressed in rather than printed on.
+ *
+ * [disc] is a photographed record ([ScannedDisc]). **A scan of a whole CD replaces the drawn record**, the pressing
+ * and the label, clipped to the disc's circle and dressed with the desktop's rim and the player's spindle ([CdDress]),
+ * and it does not wobble: a moulded CD has no off-centre fault. A label scan sits on the app's own pressing instead,
+ * which still wobbles. Both are drawn at the disc's full size, because the desktop cuts every scan as a square the size
+ * of the whole disc and a label leaves the rest of it transparent.
  */
 @Composable
 fun RecordDisc(
@@ -227,9 +240,12 @@ fun RecordDisc(
     spinning: Boolean = true,
     hue: Int? = VinylPressing.HOUSE_HUE,
     label: ImageBitmap? = null,
+    disc: ScannedDisc? = null,
 ) {
     val context = LocalContext.current
     val pressed by produceState<ImageBitmap?>(null, hue) { value = VinylPressing.press(context, hue) }
+    // The CD's dress is read only for a record that wears one.
+    val dress = if (disc?.coversRecord == true) CdDress.pictures() else null
     val started = remember { System.nanoTime() }
     val now = remember { mutableLongStateOf(started) }
     LaunchedEffect(spinning) {
@@ -240,14 +256,15 @@ fun RecordDisc(
         Canvas(Modifier.size(diameter * HALO_SCALE)) {
             val d = diameter.toPx()
             val angle = if (spinning) angle(after = (now.longValue - started).coerceAtLeast(0) / 1e9) else 0.0
-            val orbit = d * WOBBLE
+            // A CD does not wobble: the orbit imitates an off-centre pressing, which a moulded disc does not have.
+            val orbit = if (disc?.coversRecord == true) 0f else d * WOBBLE
             val wobble = Offset((orbit * cos(Math.toRadians(angle))).toFloat(), (orbit * sin(Math.toRadians(angle))).toFloat())
-            translate(wobble.x, wobble.y) { drawRecord(d, angle.toFloat(), pressed, halo, label) }
+            translate(wobble.x, wobble.y) { drawRecord(d, angle.toFloat(), pressed, halo, label, disc, dress) }
         }
     }
 }
 
-private fun DrawScope.drawRecord(d: Float, angle: Float, pressed: ImageBitmap?, halo: Halo, label: ImageBitmap?) {
+private fun DrawScope.drawRecord(d: Float, angle: Float, pressed: ImageBitmap?, halo: Halo, label: ImageBitmap?, disc: ScannedDisc?, dress: CdDress?) {
     val c = center
 
     // The halo. It is a separate shape, not part of the record, so it does not turn with it.
@@ -264,8 +281,11 @@ private fun DrawScope.drawRecord(d: Float, angle: Float, pressed: ImageBitmap?, 
         center = c,
     )
 
-    // The pressing. Until it is ready, the disc is drawn black, because drawing nothing would look like a hole.
-    if (pressed != null) {
+    // The pressing. Until it is ready, the disc is drawn black, because drawing nothing would look like a hole. Nothing
+    // under a CD: its picture replaces the record, and a layer under it would show through as it fades away.
+    if (disc?.coversRecord == true) {
+        // Nothing.
+    } else if (pressed != null) {
         drawImage(
             pressed,
             srcOffset = IntOffset.Zero,
@@ -279,6 +299,27 @@ private fun DrawScope.drawRecord(d: Float, angle: Float, pressed: ImageBitmap?, 
 
     // The label. This is the only part that turns.
     rotate(angle, pivot = c) {
+        if (disc != null) {
+            // The scan, filled into the disc's circle: a CD covers it all, a label only its middle third.
+            val picture = disc.picture
+            val side = min(picture.width, picture.height)
+            clipPath(Path().apply { addOval(Rect(c, d / 2)) }) {
+                drawImage(
+                    picture,
+                    srcOffset = IntOffset((picture.width - side) / 2, (picture.height - side) / 2),
+                    srcSize = IntSize(side, side),
+                    dstOffset = IntOffset((c.x - d / 2).toInt(), (c.y - d / 2).toInt()),
+                    dstSize = IntSize(d.toInt(), d.toInt()),
+                )
+            }
+            // In the face, so it turns with the disc.
+            if (dress != null) {
+                drawImage(dress.face, dstOffset = IntOffset((c.x - d / 2).toInt(), (c.y - d / 2).toInt()), dstSize = IntSize(d.toInt(), d.toInt()))
+                val spindle = d * CdDress.SPINDLE_SHARE
+                drawImage(dress.spindle, dstOffset = IntOffset((c.x - spindle / 2).toInt(), (c.y - spindle / 2).toInt()), dstSize = IntSize(spindle.toInt(), spindle.toInt()))
+            }
+            return@rotate
+        }
         val edge = d * LABEL_EDGE
         drawCircle(Color(0xFF0A0A0A), radius = edge / 2, center = c)
         if (label != null) {
@@ -309,6 +350,56 @@ private fun DrawScope.drawRecord(d: Float, angle: Float, pressed: ImageBitmap?, 
     drawCircle(Color(0xFF0B111A), radius = spindle / 2, center = c)
     val rim = max(0.5f, d / 400)
     drawCircle(Color.White.copy(alpha = 0x22 / 255f), radius = spindle / 2 - rim / 2, center = c, style = Stroke(rim))
+}
+
+/**
+ * A photographed record: the transparent picture the desktop uploads for an album, and whether it is the whole disc
+ * (a CD, which replaces the drawn record) or only a label (worn on the app's own pressing). The iPhone's `ScannedDisc`;
+ * the question is answered once, from the picture, by `:core`'s [com.rpm.player.core.library.DiscScan].
+ */
+class ScannedDisc private constructor(val picture: ImageBitmap, val coversRecord: Boolean) {
+    companion object {
+        /**
+         * Reads [disc] at [edge] pixels and answers the question, off the main thread. Null when there is no picture to
+         * read, and then the drawn record is shown as it is.
+         */
+        suspend fun load(context: Context, disc: DiscArt, images: ImageLoader, edge: Int): ScannedDisc? {
+            val request = ImageRequest.Builder(context).data(disc).size(edge.coerceAtLeast(64)).allowHardware(false).build()
+            val bitmap = (images.execute(request) as? SuccessResult)?.image?.toBitmap() ?: return null
+            return withContext(Dispatchers.Default) {
+                val covers = DiscScan.coversRecord(bitmap.width, bitmap.height) { x, y -> bitmap.getPixel(x, y) ushr 24 }
+                ScannedDisc(bitmap.asImageBitmap(), covers)
+            }
+        }
+    }
+}
+
+/**
+ * The two pictures the desktop draws over a whole CD (`CdOverlay.cs`, the iPhone's `CdDress`): an even rim with the
+ * rpm hub over the whole disc, hiding the table a photographed disc's clear rim shows, and a CD player's spindle in the
+ * hole, [SPINDLE_SHARE] of the disc across. Read once and kept.
+ */
+class CdDress private constructor(val face: ImageBitmap, val spindle: ImageBitmap) {
+    companion object {
+        /** The spindle's square against the disc's diameter. */
+        const val SPINDLE_SHARE = 176f / 1400f
+
+        @Volatile private var held: CdDress? = null
+
+        @Composable
+        fun pictures(): CdDress? {
+            val context = LocalContext.current
+            val read by produceState(held) {
+                if (value != null) return@produceState
+                value = withContext(Dispatchers.IO) {
+                    val face = BitmapFactory.decodeResource(context.resources, CoreR.drawable.cd_face)?.asImageBitmap()
+                    val spindle = BitmapFactory.decodeResource(context.resources, CoreR.drawable.cd_spindle)?.asImageBitmap()
+                    if (face != null && spindle != null) CdDress(face, spindle).also { held = it } else null
+                }
+            }
+            return read
+        }
+    }
 }
 
 /** One turn takes 1.8 s, which is 33 and a third turns a minute. */

@@ -110,6 +110,7 @@ import com.rpm.player.phone.radio.StationFace
 import com.rpm.player.phone.design.TopPull
 import com.rpm.player.phone.design.growsWithPull
 import com.rpm.player.phone.design.rememberTopPull
+import com.rpm.player.phone.design.rememberHaptics
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.draw.drawBehind
@@ -672,13 +673,14 @@ fun PicksRow(
     songLine: SongLine,
 ) {
     val songs = picks.filterIsInstance<QuickPick.Song>().map { it.track }
+    val haptics = rememberHaptics()
     val panels = picks.chunked(QUICK_TALL)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.height(34.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             BasicText(heading, style = display(19f).copy(color = Color.White))
             if (songs.isNotEmpty()) {
                 Box(
-                    Modifier.size(34.dp).clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Button) { actions.onPlay(songs) },
+                    Modifier.size(34.dp).clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Button) { haptics.pick(); actions.onPlay(songs) },
                     contentAlignment = Alignment.Center,
                 ) { BasicText(Glyph.play, style = icon(12f).copy(color = Ink.white(0xB8))) }
             }

@@ -67,6 +67,7 @@ import com.rpm.player.phone.design.Backdrop
 import com.rpm.player.phone.design.CHROME_BLUR
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.Ink
+import com.rpm.player.phone.design.rememberHaptics
 import com.rpm.player.phone.design.SwipeKey
 import com.rpm.player.phone.design.SwipeRow
 import com.rpm.player.phone.design.display
@@ -163,6 +164,7 @@ internal fun QueueOverlay(queue: QueueRead, sittingFrom: Int, player: Player, ba
 @Composable
 private fun Panel(queue: QueueRead, sittingFrom: Int, player: Player, onPull: (Float) -> Unit, onLetGo: (Float) -> Unit, onTap: () -> Unit) {
     var rearranging by remember { mutableStateOf(false) }
+    val haptics = rememberHaptics()
     val look = QueueLook.sitting(Sitting.shownFrom(sittingFrom, queue.entries.size, queue.playing), queue.playing)
     val rows = remember(queue, look.from) { QueueRows.of(queue.entries, look) { it.mediaId } }
     val coming = rows.count { it.state == QueueRow.State.Coming }
@@ -185,7 +187,10 @@ private fun Panel(queue: QueueRead, sittingFrom: Int, player: Player, onPull: (F
             }
             // Another order for what has not been played: one press, not a mode. Hidden where it could change nothing.
             if (coming >= 2 && !rearranging) {
-                HeadKey(Glyph.shuffle, stringResource(R.string.Rpm_Queue_Shuffle)) { player.shuffleWhatIsComing() }
+                HeadKey(Glyph.shuffle, stringResource(R.string.Rpm_Queue_Shuffle)) {
+                    haptics.commit()
+                    player.shuffleWhatIsComing()
+                }
             }
             if (queue.entries.size > 1) {
                 // A tick to leave the mode, not a play mark, which would read as "play this".
@@ -193,7 +198,10 @@ private fun Panel(queue: QueueRead, sittingFrom: Int, player: Player, onPull: (F
                     if (rearranging) Glyph.check else Glyph.grip,
                     stringResource(if (rearranging) R.string.CloudChip_StageDone else R.string.Rpm_Queue_Rearrange),
                     Modifier.offset(x = 6.dp),
-                ) { rearranging = !rearranging }
+                ) {
+                    haptics.pick()
+                    rearranging = !rearranging
+                }
             }
         }
     }
@@ -230,6 +238,7 @@ private fun Rows(rows: List<QueueRow<QueueEntry>>, look: QueueLook, queue: Queue
     val rowPx = with(density) { ROW.toPx() }
     var carried by remember { mutableStateOf<String?>(null) }
     var dy by remember { mutableFloatStateOf(0f) }
+    val haptics = rememberHaptics()
     val from = rows.indexOfFirst { it.id == carried }
     // Where the carried row would land, as a place in the list, never above the first song still to come.
     val first = rows.indexOfFirst { it.state == QueueRow.State.Coming }.coerceAtLeast(0)
@@ -296,7 +305,10 @@ private fun Rows(rows: List<QueueRow<QueueEntry>>, look: QueueLook, queue: Queue
                                                     QueueRows.drop(rows, look, source, if (target > source) target + 1 else target, queue.entries.size)
                                                 } else null
                                                 val id = rows.getOrNull(source)?.item?.mediaId
-                                                if (move != null && id != null && player.holds(move.first, id)) player.moveMediaItem(move.first, move.second)
+                                                if (move != null && id != null && player.holds(move.first, id)) {
+                                                    haptics.tick()
+                                                    player.moveMediaItem(move.first, move.second)
+                                                }
                                                 carried = null
                                                 dy = 0f
                                             },
@@ -319,8 +331,8 @@ private fun Rows(rows: List<QueueRow<QueueEntry>>, look: QueueLook, queue: Queue
                     val canMoveUp = row.at != playing && row.at != (playing ?: -1) + 1
                     val id = row.item.mediaId
                     SwipeRow(
-                        leading = if (canMoveUp) SwipeKey(Glyph.next, stringResource(R.string.AlbumMenu_PlayNext), Ink.white(0x33)) { player.playNext(row.at, id) } else null,
-                        trailing = SwipeKey(Glyph.remove, stringResource(R.string.Details_RemoveArt), REMOVE) { player.remove(row.at, id) },
+                        leading = if (canMoveUp) SwipeKey(Glyph.next, stringResource(R.string.AlbumMenu_PlayNext), Ink.white(0x33)) { haptics.commit(); player.playNext(row.at, id) } else null,
+                        trailing = SwipeKey(Glyph.remove, stringResource(R.string.Details_RemoveArt), REMOVE) { haptics.commit(); player.remove(row.at, id) },
                     ) {
                         Song(row, trailingRoom = true) { player.jump(row.at, id) }
                     }

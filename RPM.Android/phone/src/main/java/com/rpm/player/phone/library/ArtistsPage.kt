@@ -92,6 +92,7 @@ import com.rpm.player.phone.design.scrolled
 import com.rpm.player.phone.ui.ArtistMark
 import com.rpm.player.phone.ui.MarkView
 import com.rpm.player.phone.ui.VinylGround
+import com.rpm.player.phone.design.rememberHaptics
 import com.rpm.player.phone.ui.color
 import com.rpm.player.phone.ui.rememberAccent
 import kotlinx.coroutines.Dispatchers
@@ -236,6 +237,7 @@ internal fun SearchRow(
     backdrop: Backdrop,
     onClose: () -> Unit,
 ) {
+    val haptics = rememberHaptics()
     // The keyboard comes up when the search is opened, not each time the box is drawn.
     LaunchedEffect(raise) {
         if (raise) {
@@ -249,7 +251,7 @@ internal fun SearchRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SearchBox(asked, onAsked, prompt, focus, Modifier.weight(1f))
-        GlassKey(backdrop, onClose, edge = SEARCH_HEIGHT) {
+        GlassKey(backdrop, { haptics.pick(); onClose() }, edge = SEARCH_HEIGHT) {
             BasicText(Glyph.close, style = icon(15f).copy(color = Ink.white(0xB8)))
         }
     }

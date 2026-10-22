@@ -59,6 +59,7 @@ import com.rpm.player.core.library.TrackList
 import com.rpm.player.core.library.listName
 import com.rpm.player.phone.PhoneSettings
 import com.rpm.player.phone.design.BackKey
+import com.rpm.player.phone.design.rememberHaptics
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.Ink
 import com.rpm.player.phone.design.PageHeading
@@ -141,10 +142,14 @@ fun PlaylistsPage(
 
     // A press on a folder opens it and a press on anything else opens that, from either layout, so a tile and a row
     // always agree about what a tap does.
+    val haptics = rememberHaptics()
     fun press(row: PlaylistRow) = when (row) {
         PlaylistRow.Queue -> onOpenQueue()
         PlaylistRow.Marked -> onOpenMarked()
-        is PlaylistRow.Folder -> at = row.folder.path
+        is PlaylistRow.Folder -> {
+            haptics.pick()
+            at = row.folder.path
+        }
         is PlaylistRow.Playlist -> onOpen(row.list)
     }
     val pictureOf = { row: PlaylistRow -> collection.coverModel(row, queue, marked.orEmpty()) }
@@ -155,7 +160,7 @@ fun PlaylistsPage(
             Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Row(Modifier.padding(start = 20.dp, end = 16.dp, bottom = 10.dp)) {
                     if (back != null) {
-                        BackKey(ground, onBack = { at = back }, modifier = Modifier.padding(end = BESIDE_TITLE))
+                        BackKey(ground, onBack = { haptics.pick(); at = back }, modifier = Modifier.padding(end = BESIDE_TITLE))
                     }
                     PageHeading(browse.at.lastOrNull() ?: stringResource(R.string.Playlists_Title), counts(browse)) {
                         // The folder's keys on one glass capsule, as in the records wall's header. The layout key sits

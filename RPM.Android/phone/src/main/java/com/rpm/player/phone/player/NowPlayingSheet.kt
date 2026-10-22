@@ -84,6 +84,7 @@ import com.rpm.player.core.radio.StationSign
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.GlassKey
 import com.rpm.player.phone.design.Ink
+import com.rpm.player.phone.design.rememberHaptics
 import com.rpm.player.phone.design.backdropSource
 import com.rpm.player.phone.design.chromeGlass
 import com.rpm.player.phone.design.display
@@ -184,6 +185,7 @@ fun NowPlayingSheet(
     val density = LocalDensity.current
     val backdrop = rememberBackdrop()
     var showingLyrics by remember { mutableStateOf(false) }
+    val haptics = rememberHaptics()
     var showingSpeakers by remember { mutableStateOf(false) }
     var showingSleepTimer by remember { mutableStateOf(false) }
     var showingQueue by remember { mutableStateOf(false) }
@@ -296,9 +298,9 @@ fun NowPlayingSheet(
                         lyricsLit = showingLyrics,
                         lyricsShown = lyrics.isSynced || lookingUpLyrics,
                         lyricsEnabled = lyrics.isSynced,
-                        onLyrics = { showingLyrics = !showingLyrics },
+                        onLyrics = { haptics.pick(); showingLyrics = !showingLyrics },
                         queueEnabled = player.mediaItemCount > 0 && !onStation,
-                        onQueue = { showingQueue = true },
+                        onQueue = { haptics.pick(); showingQueue = true },
                         onMenu = { menuAt = it },
                     )
                 }
@@ -608,6 +610,7 @@ private fun PlayKey(now: NowPlaying, player: Player) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     var press by remember { mutableStateOf<Press?>(null) }
+    val haptics = rememberHaptics()
     val glyph = when {
         press == Press.Held -> Glyph.stop
         now.playing -> Glyph.pause
@@ -625,7 +628,11 @@ private fun PlayKey(now: NowPlaying, player: Player) {
                     press = Press.Brief
                     val watch: Job = scope.launch {
                         delay(HOLD_FOR_STOP_MS)
-                        if (press == Press.Brief) press = Press.Held
+                        // The hand feels the key become stop: the finger is over the glyph that changed.
+                        if (press == Press.Brief) {
+                            press = Press.Held
+                            haptics.commit()
+                        }
                     }
                     while (true) {
                         val event = awaitPointerEvent()

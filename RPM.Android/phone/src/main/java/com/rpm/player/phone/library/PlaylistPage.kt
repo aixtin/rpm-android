@@ -77,6 +77,7 @@ import com.rpm.player.phone.design.backdropSource
 import com.rpm.player.phone.design.display
 import com.rpm.player.phone.design.displayBold
 import com.rpm.player.phone.design.dissolvesAtTop
+import com.rpm.player.phone.design.rememberHaptics
 import com.rpm.player.phone.design.OverChrome
 import com.rpm.player.phone.design.icon
 import com.rpm.player.phone.design.pt
@@ -149,6 +150,7 @@ fun PlaylistPage(
     val rowsOf = remember(order) { QueueRows.of(order, QueueLook.Whole) { it.rpmId } }
     // Rearranging needs two songs or more, and a list this phone may write.
     val rearranging = asked && canReorder && rowsOf.size > 1
+    val haptics = rememberHaptics()
     BackHandler(onBack = { if (rearranging) asked = false else onBack() })
     val page = rememberBackdrop()
     val rows = rememberLazyListState()
@@ -171,6 +173,7 @@ fun PlaylistPage(
             val moved = order.toMutableList().apply { add(target, removeAt(source)) }
             order = moved
             carry.landed = true
+            haptics.tick()
             scope.launch { if (!onMove(moved)) order = was }
         }
     }
@@ -192,11 +195,11 @@ fun PlaylistPage(
                         }
                         // Another selection of the same list comes before shuffle, as on the desktop: first what the
                         // list is, then what to do with it.
-                        if (onNewList != null) ListKey(Glyph.refresh, enabled = true, onClick = onNewList)
+                        if (onNewList != null) ListKey(Glyph.refresh, enabled = true, onClick = { haptics.pick(); onNewList() })
                         ListKey(Glyph.shuffle, enabled = !empty && !rearranging, onClick = onShuffle)
                         if (adding != null) ListKey(Glyph.plus, enabled = !rearranging) { picking = true }
                         // The tick leaves rearranging. It is not a play mark, which would read as "play this".
-                        if (canReorder && rowsOf.size > 1) ListKey(if (rearranging) Glyph.check else Glyph.grip, enabled = true) { asked = !rearranging }
+                        if (canReorder && rowsOf.size > 1) ListKey(if (rearranging) Glyph.check else Glyph.grip, enabled = true) { haptics.pick(); asked = !rearranging }
                     }
                 }
                 if (order.isEmpty()) {

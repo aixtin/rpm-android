@@ -92,6 +92,7 @@ import com.rpm.player.core.cast.CastState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rpm.player.phone.ui.RecordDisc
 import com.rpm.player.phone.ui.VinylPressing
+import com.rpm.player.phone.ui.ScannedDisc
 import com.rpm.player.phone.ui.accentOf
 import com.rpm.player.phone.ui.color
 import com.rpm.player.phone.player.BusyKey
@@ -376,9 +377,12 @@ private fun Deck(now: NowPlaying, images: ImageLoader, chromeUp: Boolean, height
     // The record is pressed in the cover's accent, and in the house colour without one (`VinylPressing` with
     // `art.accent.base` on iPhone). It changes with the face, while the record is away.
     var hue by remember { mutableStateOf<Int?>(VinylPressing.HOUSE_HUE) }
+    // The record's own photographed disc, where the cloud keeps one (`RecordFace.cd` on iPhone).
+    var cd by remember { mutableStateOf<ScannedDisc?>(null) }
     val aloft = remember { Animatable(1f) }
     val away by animateFloatAsState(if (chromeUp) 0f else 1f, tween(300, easing = LinearOutSlowInEasing), label = "disc away")
-    val wanted = now.album to now.cover?.keys?.firstOrNull()
+    // Whether there is a disc picture counts as part of the record, so a disc that arrives is worn.
+    val wanted = Triple(now.album, now.cover?.keys?.firstOrNull(), now.disc?.keys?.firstOrNull())
 
     LaunchedEffect(wanted) {
         val edge = with(density) { (diameter * 0.33f).roundToPx() }.coerceAtLeast(64)
@@ -386,6 +390,7 @@ private fun Deck(now: NowPlaying, images: ImageLoader, chromeUp: Boolean, height
             val request = ImageRequest.Builder(context).data(cover).size(edge).build()
             (images.execute(request) as? SuccessResult)?.image?.toBitmap()?.asImageBitmap()
         }
+        val scanned = now.disc?.let { ScannedDisc.load(context, it, images, with(density) { diameter.roundToPx() }) }
         val accent = now.cover?.let { accentOf(context, it, images) }
         val pressing = accent?.color()?.toArgb() ?: VinylPressing.HOUSE_HUE
         // Press the vinyl first, then change the face, so the record never lands black.
@@ -393,6 +398,7 @@ private fun Deck(now: NowPlaying, images: ImageLoader, chromeUp: Boolean, height
         if (aloft.value < 1f) aloft.animateTo(1f, tween(FLIGHT_MS, easing = FastOutSlowInEasing))
         worn = label
         hue = pressing
+        cd = scanned
         aloft.animateTo(0f, tween(FLIGHT_MS, easing = FastOutSlowInEasing))
     }
 
@@ -418,6 +424,7 @@ private fun Deck(now: NowPlaying, images: ImageLoader, chromeUp: Boolean, height
             spinning = chromeUp && now.advancing,
             label = worn,
             hue = hue,
+            disc = cd,
         )
     }
 }

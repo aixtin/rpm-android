@@ -39,6 +39,7 @@ import com.rpm.player.phone.design.GlassButton
 import com.rpm.player.phone.design.GlassCard
 import com.rpm.player.phone.design.GlassKey
 import com.rpm.player.phone.design.Ink
+import com.rpm.player.phone.design.rememberHaptics
 import com.rpm.player.phone.design.displayBold
 import com.rpm.player.phone.design.icon
 import com.rpm.player.phone.design.kicker
@@ -83,6 +84,7 @@ internal object SleepWords {
 @Composable
 fun SleepTimerSheet(sleep: SleepClock, onStation: Boolean, hasTrack: Boolean, backdrop: Backdrop, onClose: () -> Unit) {
     val timer by sleep.timer.collectAsStateWithLifecycle()
+    val haptics = rememberHaptics()
     BackHandler(onBack = onClose)
     Box(
         Modifier
@@ -119,7 +121,7 @@ fun SleepTimerSheet(sleep: SleepClock, onStation: Boolean, hasTrack: Boolean, ba
                     for (pair in SleepTimer.DURATIONS_MS.chunked(2)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             for (wait in pair) {
-                                GlassButton(onClick = { sleep.add(wait) }, modifier = Modifier.weight(1f), height = 42.dp, inset = 8.dp, size = 14f) { style ->
+                                GlassButton(onClick = { haptics.tick(); sleep.add(wait) }, modifier = Modifier.weight(1f), height = 42.dp, inset = 8.dp, size = 14f) { style ->
                                     BasicText(SleepWords.adding(wait), style = style)
                                 }
                             }
@@ -131,11 +133,11 @@ fun SleepTimerSheet(sleep: SleepClock, onStation: Boolean, hasTrack: Boolean, ba
                     // Offered only where it means something: not when the timer already waits for the end of the song,
                     // and not on a station, which has no end.
                     if (!timer.endsWithTheTrack && !onStation && hasTrack) {
-                        GlassButton(onClick = { sleep.set(SleepTimer.Choice.EndOfTrack) }, height = 42.dp, size = 14f) { style ->
+                        GlassButton(onClick = { haptics.pick(); sleep.set(SleepTimer.Choice.EndOfTrack) }, height = 42.dp, size = 14f) { style ->
                             BasicText(stringResource(R.string.Rpm_Sleep_EndOfSong), style = style)
                         }
                     }
-                    GlassButton(onClick = { sleep.turnOff(); onClose() }, height = 42.dp, size = 14f) { style ->
+                    GlassButton(onClick = { haptics.commit(); sleep.turnOff(); onClose() }, height = 42.dp, size = 14f) { style ->
                         BasicText(stringResource(R.string.Rpm_Sleep_TurnOff), style = style)
                     }
                 }

@@ -127,6 +127,7 @@ private val OFFERED = listOf(
  * Not yet implemented: pinch to resize the wall, pull to refresh, and a song's menu on the results.
  *
  * @param bottomRoom how much of the bottom of the page the chrome covers.
+ * @param onMakePlaylist makes a playlist from the playlists view's plus key ([PlaylistsPage]).
  */
 @Composable
 fun LibraryPage(
@@ -145,10 +146,11 @@ fun LibraryPage(
     onOpenMarked: () -> Unit,
     playing: String?,
     onPlaySong: (SongSearch.SongHit) -> Unit,
+    onMakePlaylist: suspend (name: String, folder: List<String>, tracks: List<CloudTrack>) -> String?,
 ) {
     when (settings.libraryMode) {
         LibraryMode.Playlists -> {
-            PlaylistsPage(ready, images, onMode = settings::changeLibraryMode, bottomRoom = bottomRoom, queue = queue, onOpenQueue = onOpenQueue, marked = marked, onOpenMarked = onOpenMarked, onOpen = onOpenList)
+            PlaylistsPage(ready, images, settings, onMode = settings::changeLibraryMode, bottomRoom = bottomRoom, queue = queue, onOpenQueue = onOpenQueue, marked = marked, onOpenMarked = onOpenMarked, onOpen = onOpenList, onMake = onMakePlaylist)
             return
         }
         LibraryMode.Artists -> {

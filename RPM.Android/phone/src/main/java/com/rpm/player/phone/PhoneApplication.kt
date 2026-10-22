@@ -18,6 +18,7 @@ import com.rpm.player.core.playback.Levelling
 import com.rpm.player.phone.art.Logos
 import com.rpm.player.phone.art.Portraits
 import com.rpm.player.phone.library.LibraryMode
+import com.rpm.player.phone.library.PlaylistLayout
 import com.rpm.player.phone.signin.SignIn
 import com.rpm.player.phone.signin.Said
 import com.rpm.player.phone.profile.Account
@@ -128,6 +129,25 @@ class PhoneSettings(context: Context) {
         prefs.edit().putString(KEY_LIBRARY_MODE, mode.stored).apply()
     }
 
+    /** How the playlists view shows a folder: covers or rows (`playlists.layout`). It opens in the layout last chosen. */
+    var playlistLayout by mutableStateOf(PlaylistLayout.of(prefs.getString(KEY_PLAYLIST_LAYOUT, null)) ?: PlaylistLayout.List)
+        private set
+
+    fun changePlaylistLayout(layout: PlaylistLayout) {
+        playlistLayout = layout
+        prefs.edit().putString(KEY_PLAYLIST_LAYOUT, layout.stored).apply()
+    }
+
+    /** How wide a tile on the playlists' covers is asked to be (`playlists.tileArt.v1`), apart from the records wall's,
+     * because the two walls are pinched apart. Saved when the fingers lift. */
+    var playlistStride by mutableStateOf(prefs.getFloat(KEY_PLAYLIST_STRIDE, 194f).toDouble())
+        private set
+
+    fun changePlaylistStride(stride: Double) {
+        playlistStride = stride
+        prefs.edit().putFloat(KEY_PLAYLIST_STRIDE, stride.toFloat()).apply()
+    }
+
     /**
      * Stored by the iPhone's names (`off`, `album`, `track`). A name this build does not know gives the default, not
      * off: levelling is on unless the person turned it off. The comparison ignores case, because earlier builds wrote
@@ -230,5 +250,7 @@ class PhoneSettings(context: Context) {
         const val KEY_LIBRARY_MODE = "library.mode"
         const val KEY_ARTIST_ORDER = "library.artistOrder"
         const val KEY_TRACK_GROUPING = "artist.trackGrouping"
+        const val KEY_PLAYLIST_LAYOUT = "playlists.layout"
+        const val KEY_PLAYLIST_STRIDE = "playlists.tileArt.v1"
     }
 }

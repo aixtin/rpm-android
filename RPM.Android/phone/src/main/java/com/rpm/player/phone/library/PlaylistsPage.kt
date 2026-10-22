@@ -1,6 +1,10 @@
 package com.rpm.player.phone.library
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,6 +56,7 @@ import com.rpm.player.core.library.PlaylistBrowse
 import com.rpm.player.core.library.PlaylistRow
 import com.rpm.player.core.library.TrackList
 import com.rpm.player.core.library.listName
+import com.rpm.player.phone.PhoneSettings
 import com.rpm.player.phone.design.BackKey
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.Ink
@@ -74,6 +79,15 @@ private val BESIDE_TITLE = 12.dp
  * filed in. The folders come first, then the lists. Each row has its picture, its name and how much is in it.
  * Opening a folder shows its contents in place, with a back key beside its name. Opening a list opens its page.
  *
+ * The same folder can be shown as covers instead of rows ([PlaylistWall]), chosen from the layout key in the header,
+ * as on the iPhone. The choice and the covers' size, which a pinch changes, are kept between launches. Both layouts
+ * draw the rows of one [PlaylistBrowse], so they always agree about what is in a folder, and switching keeps the
+ * folder open.
+ *
+ * The plus key beside it makes a playlist in the folder that is open ([NewPlaylistSheet]): which plus was tapped
+ * says where the playlist goes. It is not offered on a borrowed shelf, where a playlist would belong to this account
+ * but name records it does not have.
+ *
  * The current folder is checked against the lists on every pass. If a folder is emptied while it is open, the
  * reader is moved to the folder that holds it.
  *
@@ -81,14 +95,17 @@ private val BESIDE_TITLE = 12.dp
  * row is under it.
  *
  * @param marked the marked songs, or null on a borrowed shelf, which has no row for them.
+ * @param onMake makes a playlist from the panel: its name, its folder and its songs. It returns a sentence when it
+ * failed, and null when it is done.
  *
- * Not yet implemented: the covers layout and its key, the key that makes a playlist, pull to refresh, and the
- * line that says whose collection a borrowed one is.
+ * Not yet implemented: pull to refresh (the lists are read again when the app comes back to the front instead), and
+ * the line that says whose collection a borrowed one is.
  */
 @Composable
 fun PlaylistsPage(
     ready: LibraryState.Ready,
     images: ImageLoader,
+    settings: PhoneSettings,
     onMode: (LibraryMode) -> Unit,
     bottomRoom: Dp,
     queue: QueueRead,
@@ -96,49 +113,130 @@ fun PlaylistsPage(
     marked: List<CloudTrack>?,
     onOpenMarked: () -> Unit,
     onOpen: (TrackList) -> Unit,
+    onMake: suspend (name: String, folder: List<String>, tracks: List<CloudTrack>) -> String?,
 ) {
     val ground = rememberBackdrop()
+    val page = rememberBackdrop()
     val collection = ready.collection
     val resources = LocalContext.current.resources
     var at by rememberSaveable { mutableStateOf(listOf<String>()) }
+    // The folder the panel makes its playlist in, or null while it is closed: the plus key that was tapped already
+    // says which folder.
+    var making by remember { mutableStateOf<List<String>?>(null) }
+    var choosingLayout by remember { mutableStateOf(false) }
+    // The size the fingers ask for while they are still down. It is saved only when they lift.
+    var pinching by remember { mutableStateOf<Double?>(null) }
     val browse = remember(at, collection, resources, marked != null) {
         PlaylistBrowse.of(at, collection.lists, { listName(it.name, resources) }, marked = marked != null)
     }
     val back = browse.back
     BackHandler(enabled = back != null) { if (back != null) at = back }
+    val own = collection.shelf == Shelf.Own
+
+    // A press on a folder opens it and a press on anything else opens that, from either layout, so a tile and a row
+    // always agree about what a tap does.
+    fun press(row: PlaylistRow) = when (row) {
+        PlaylistRow.Queue -> onOpenQueue()
+        PlaylistRow.Marked -> onOpenMarked()
+        is PlaylistRow.Folder -> at = row.folder.path
+        is PlaylistRow.Playlist -> onOpen(row.list)
+    }
+    val pictureOf = { row: PlaylistRow -> collection.coverModel(row, queue, marked.orEmpty()) }
 
     Box(Modifier.fillMaxSize()) {
-        VinylGround(Modifier.backdropSource(ground))
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(Modifier.padding(start = 20.dp, end = 16.dp, bottom = 10.dp)) {
-                if (back != null) {
-                    BackKey(ground, onBack = { at = back }, modifier = Modifier.padding(end = BESIDE_TITLE))
-                }
-                PageHeading(browse.at.lastOrNull() ?: stringResource(R.string.Playlists_Title), counts(browse)) {}
-            }
-            ModeTabs(LibraryMode.Playlists, onMode = onMode, backdrop = ground)
-            // A folder is a new place, and a new place starts at the top.
-            key(browse.at) {
-                val list = rememberLazyListState()
-                LazyColumn(
-                    state = list,
-                    modifier = Modifier.weight(1f).fillMaxWidth().dissolvesAtTop(30.dp) { list.scrolled() },
-                    contentPadding = PaddingValues(bottom = FOOT + bottomRoom),
-                ) {
-                    items(browse.rows, key = { it.id }) { row ->
-                        Line(row, queue, marked.orEmpty(), collection.coverModel(row, queue, marked.orEmpty()), images) {
-                            when (row) {
-                                PlaylistRow.Queue -> onOpenQueue()
-                                PlaylistRow.Marked -> onOpenMarked()
-                                is PlaylistRow.Folder -> at = row.folder.path
-                                is PlaylistRow.Playlist -> onOpen(row.list)
-                            }
+        Box(Modifier.fillMaxSize().backdropSource(page)) {
+            VinylGround(Modifier.backdropSource(ground))
+            Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                Row(Modifier.padding(start = 20.dp, end = 16.dp, bottom = 10.dp)) {
+                    if (back != null) {
+                        BackKey(ground, onBack = { at = back }, modifier = Modifier.padding(end = BESIDE_TITLE))
+                    }
+                    PageHeading(browse.at.lastOrNull() ?: stringResource(R.string.Playlists_Title), counts(browse)) {
+                        // The folder's keys on one glass capsule, as in the records wall's header. The layout key sits
+                        // with them, not in the menu that leaves the lists, because it does neither of those things.
+                        KeyGroup(ground) {
+                            HeaderKey(settings.playlistLayout.mark) { choosingLayout = true }
+                            if (own) HeaderKey(Glyph.plus) { making = browse.at }
                         }
                     }
-                    item(key = "footer") { Footer(browse, empty = collection.lists.isEmpty(), own = collection.shelf == Shelf.Own) }
+                }
+                ModeTabs(LibraryMode.Playlists, onMode = onMode, backdrop = ground)
+                // A folder is a new place, and a new place starts at the top.
+                key(browse.at, settings.playlistLayout) {
+                    when (settings.playlistLayout) {
+                        PlaylistLayout.List -> Rows(browse, queue, marked.orEmpty(), pictureOf, images, bottomRoom, ::press) {
+                            Footer(browse, empty = collection.lists.isEmpty(), own = own)
+                        }
+                        PlaylistLayout.Grid -> Box(Modifier.weight(1f)) {
+                            PlaylistWall(
+                                browse.rows,
+                                titleOf = { title(it) },
+                                pictureOf = pictureOf,
+                                framedOf = { framedOf(it) },
+                                images = images,
+                                targetStride = pinching ?: boundedStride(settings.playlistStride),
+                                bottomRoom = bottomRoom,
+                                onPress = ::press,
+                                onPinch = { factor ->
+                                    if (factor == null) {
+                                        pinching?.let(settings::changePlaylistStride)
+                                        pinching = null
+                                    } else {
+                                        pinching = boundedStride(settings.playlistStride * factor)
+                                    }
+                                },
+                            ) { Footer(browse, empty = collection.lists.isEmpty(), own = own) }
+                        }
+                    }
                 }
             }
         }
+        if (choosingLayout) {
+            SortMenu(
+                page,
+                PlaylistLayout.entries.map { it to it.label },
+                settings.playlistLayout,
+                onPick = { settings.changePlaylistLayout(it); choosingLayout = false },
+                onClose = { choosingLayout = false },
+            )
+        }
+        AnimatedVisibility(making != null, enter = fadeIn(tween(180)), exit = fadeOut(tween(180))) {
+            // Held while the panel fades out, after [making] has been cleared.
+            val folder = remember { making.orEmpty() }
+            NewPlaylistSheet(
+                SheetErrand.Make(folder),
+                collection,
+                images,
+                page,
+                commit = { name, tracks -> onMake(name, folder, tracks) },
+                onClose = { making = null },
+            )
+        }
+    }
+}
+
+/** The rows layout: one row per folder or list, the footer after them. */
+@Composable
+private fun androidx.compose.foundation.layout.ColumnScope.Rows(
+    browse: PlaylistBrowse,
+    queue: QueueRead,
+    marked: List<CloudTrack>,
+    pictureOf: (PlaylistRow) -> Any?,
+    images: ImageLoader,
+    bottomRoom: Dp,
+    onPress: (PlaylistRow) -> Unit,
+    footer: @Composable () -> Unit,
+) {
+    val list = rememberLazyListState()
+    LazyColumn(
+        state = list,
+        modifier = Modifier.weight(1f).fillMaxWidth().dissolvesAtTop(30.dp) { list.scrolled() },
+        contentPadding = PaddingValues(bottom = FOOT + bottomRoom),
+    ) {
+        items(browse.rows, key = { it.id }, contentType = { "row" }) { row ->
+            Line(row, queue, marked, pictureOf(row), framedOf(row), images) { onPress(row) }
+        }
+        item(key = "footer", contentType = "footer") { footer() }
     }
 }
 
@@ -151,6 +249,19 @@ private fun com.rpm.player.core.library.Collection.coverModel(row: PlaylistRow, 
     PlaylistRow.Marked -> marked.firstOrNull()?.let { albumOf[it.rpmId] }?.let { cover(it) }
     is PlaylistRow.Folder -> null
     is PlaylistRow.Playlist -> cover(row.list)
+}
+
+/** The frame a row's square wears: a generated list's, or none. */
+@Composable
+private fun framedOf(row: PlaylistRow): FramedList? = (row as? PlaylistRow.Playlist)?.let { FramedList.of(it.list, it.name) }
+
+/** The name a row shows. The queue and the marked songs are named here: no name is stored for either. */
+@Composable
+private fun title(row: PlaylistRow): String = when (row) {
+    PlaylistRow.Queue -> stringResource(R.string.AlbumMenu_PlaylistNowPlaying)
+    PlaylistRow.Marked -> stringResource(R.string.Playlists_FavoriteTracks)
+    is PlaylistRow.Folder -> row.folder.name
+    is PlaylistRow.Playlist -> row.name
 }
 
 /**
@@ -170,7 +281,7 @@ private fun playlistsCount(count: Int): String =
 
 /** One row: the picture, the name over how much is in it, and the chevron on a folder. The row is lit while pressed. */
 @Composable
-private fun Line(row: PlaylistRow, queue: QueueRead, marked: List<CloudTrack>, picture: Any?, images: ImageLoader, onClick: () -> Unit) {
+private fun Line(row: PlaylistRow, queue: QueueRead, marked: List<CloudTrack>, picture: Any?, framed: FramedList?, images: ImageLoader, onClick: () -> Unit) {
     val presses = remember { MutableInteractionSource() }
     val pressed by presses.collectIsPressedAsState()
     Row(
@@ -183,21 +294,15 @@ private fun Line(row: PlaylistRow, queue: QueueRead, marked: List<CloudTrack>, p
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val glyph = when (row) {
-            PlaylistRow.Queue -> Glyph.queue
-            PlaylistRow.Marked -> Glyph.heart
-            is PlaylistRow.Folder -> Glyph.folder
-            is PlaylistRow.Playlist -> Glyph.record
-        }
-        PlaylistSleeve(picture, glyph, edge = 44.dp, corner = 6.dp, mark = 16f, images)
+        PlaylistSleeve(picture, row.mark, edge = 44.dp, corner = 6.dp, mark = 16f, images, framed)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            val (title, detail) = when (row) {
-                PlaylistRow.Queue -> stringResource(R.string.AlbumMenu_PlaylistNowPlaying) to holding(queue.entries.size, queue.seconds, 0)
-                PlaylistRow.Marked -> stringResource(R.string.Playlists_FavoriteTracks) to holding(marked.size, seconds(marked), 0)
-                is PlaylistRow.Folder -> row.folder.name to playlistsCount(row.folder.playlists)
-                is PlaylistRow.Playlist -> row.name to holding(row.list.tracks.size, seconds(row.list.tracks), row.list.missing)
+            val detail = when (row) {
+                PlaylistRow.Queue -> holding(queue.entries.size, queue.seconds, 0)
+                PlaylistRow.Marked -> holding(marked.size, seconds(marked), 0)
+                is PlaylistRow.Folder -> playlistsCount(row.folder.playlists)
+                is PlaylistRow.Playlist -> holding(row.list.tracks.size, seconds(row.list.tracks), row.list.missing)
             }
-            BasicText(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = display(15f).copy(color = Color.White))
+            BasicText(title(row), maxLines = 1, overflow = TextOverflow.Ellipsis, style = display(15f).copy(color = Color.White))
             BasicText(detail, maxLines = 1, overflow = TextOverflow.Ellipsis, style = display(11f).copy(color = Ink.white(0x88)))
         }
         if (row is PlaylistRow.Folder) BasicText(Glyph.into, style = icon(12f).copy(color = Ink.white(0x55)))
@@ -228,27 +333,35 @@ private fun Footer(browse: PlaylistBrowse, empty: Boolean, own: Boolean) {
  * thin edge and a faint icon. The picture is drawn over it once it has loaded. The picture fills the square
  * and is cropped from the bottom, as a cover is.
  *
+ * A generated list's square wears its frame ([framed]), lettered with its name, over its photograph, or over its
+ * room for the five lists that have no photograph. A framed square shows no icon: the frame is the mark.
+ *
  * @param picture a list's picture ([com.rpm.player.core.library.ListArt]) or a record's cover. Null leaves only the
  * icon.
  */
 @Composable
-fun PlaylistSleeve(picture: Any?, glyph: String, edge: Dp, corner: Dp, mark: Float, images: ImageLoader) {
+fun PlaylistSleeve(picture: Any?, glyph: String, edge: Dp, corner: Dp, mark: Float, images: ImageLoader, framed: FramedList? = null) {
     val shape = RoundedCornerShape(corner)
     Box(
         Modifier.size(edge).clip(shape).background(Color.Black.copy(alpha = 0x22 / 255f)).border(1.dp, Ink.cardBorder, shape),
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(glyph, style = icon(mark).copy(color = Ink.white(0x3A)))
-        if (picture != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(picture).build(),
-                contentDescription = null,
-                imageLoader = images,
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopCenter,
-                modifier = Modifier.fillMaxSize(),
-            )
+        when {
+            framed != null && framed.look.roomed -> ListRoom(framed.look, Modifier.fillMaxSize())
+            picture != null -> {
+                if (framed == null) BasicText(glyph, style = icon(mark).copy(color = Ink.white(0x3A)))
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(picture).build(),
+                    contentDescription = null,
+                    imageLoader = images,
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            framed == null -> BasicText(glyph, style = icon(mark).copy(color = Ink.white(0x3A)))
         }
+        if (framed != null) ListFrameOverlay(framed, Modifier.fillMaxSize())
     }
 }
 

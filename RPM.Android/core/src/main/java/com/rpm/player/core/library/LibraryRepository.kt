@@ -3,6 +3,8 @@ package com.rpm.player.core.library
 import com.rpm.player.core.auth.AuthClient
 import com.rpm.player.core.cloud.ApiException
 import com.rpm.player.core.cloud.CloudClient
+import com.rpm.player.core.cloud.CloudMoodLists
+import com.rpm.player.core.cloud.CloudPlaylist
 import com.rpm.player.core.cloud.Shelf
 import android.os.SystemClock
 import android.util.Log
@@ -131,6 +133,52 @@ class LibraryRepository(
         edits.update { change(it.forUser(user)) }
     }
 
+    /**
+     * Which selection of each generated list this phone shows, by the list's store id: how many times "another
+     * selection" was pressed on it (the iPhone's `GeneratedListReadings`). Kept for the session, whatever reloads.
+     */
+    private val readings = MutableStateFlow<Map<String, Int>>(emptyMap())
+
+    /** The playlists and the generated lists read again on their own ([rereadLists]), for the shelf they were
+     * read for. Laid over each library of that shelf read before them. */
+    private val listsRead = MutableStateFlow<ListsRead?>(null)
+
+    private data class ListsRead(val user: String, val shelf: Shelf, val playlists: List<CloudPlaylist>, val moods: CloudMoodLists?, val readAt: Long)
+
+    /** The lists the collection on screen was last built from, so a read again that finds nothing new builds nothing. */
+    @Volatile private var builtLists: Pair<List<CloudPlaylist>, CloudMoodLists?>? = null
+
+    /**
+     * Shows the next selection of the generated [list], when the computer sent more than one ([TrackList.slices]).
+     * Nothing is fetched: the whole run is already held, and the step is arithmetic ([Lists.window]).
+     */
+    fun newList(list: TrackList) {
+        if (!list.generated || list.slices <= 1) return
+        readings.update { it + (list.storeId to ((it[list.storeId] ?: 0) + 1)) }
+    }
+
+    /**
+     * Reads the playlists and the generated lists again, without the rest of the library, and without taking the
+     * collection off the screen: the iPhone's `rereadPlaylists`, run when the app comes back to the front, because a
+     * list can be changed on a computer while the phone is away. A read that fails, or finds the lists as they
+     * were, changes nothing.
+     */
+    suspend fun rereadLists() {
+        val user = auth.session.value?.userId ?: return
+        val on = shown?.takeIf { it.user == user } ?: return
+        val shelf = on.shelf
+        val readAt = clock()
+        val read = coroutineScope {
+            val own = async(Dispatchers.IO) { orNull { cloud.playlists(shelf) } }
+            val moods = async(Dispatchers.IO) { orNull { cloud.moodLists(shelf) } }
+            own.await()?.let { it to moods.await() }
+        } ?: return
+        if (shown?.let { it.user == user && it.shelf == shelf } != true) return
+        val before = builtLists
+        if (before != null && before.first == read.first && (read.second == null || before.second == read.second)) return
+        listsRead.value = ListsRead(user, shelf, read.first, read.second, readAt)
+    }
+
     private data class Key(val user: String, val shelf: Shelf, val attempt: Int, val refresh: Int)
 
     init {
@@ -247,14 +295,25 @@ class LibraryRepository(
         val loading = this
         // What was cached last, so a rebuild for a computer coming or going does not write the same
         // library again.
-        var cached: Pair<Held, OwnEdits>? = null
-        combine(held.filterNotNull(), catalogs, own) { library, here, edited -> Triple(library, here, edited) }
-            .collectLatest { (library, here, edited) ->
+        var cached: Triple<Held, OwnEdits, ListsRead?>? = null
+        // The part of the last build that depends on the tracks alone, kept while the tracks and the computers stay
+        // the same: a list read again, written or stepped to its next selection builds only the lists and home.
+        var base: Base? = null
+        combine(held.filterNotNull(), catalogs, own, readings, listsRead) { library, here, edited, chosen, lists -> Built(library, here, edited, chosen, lists) }
+            .collectLatest { (library, here, edited, chosen, lists) ->
                 val mine = if (edited.user == user) edited else OwnEdits.NONE
+                // Lists read again after this library was read replace its lists; an older read is left out.
+                val read = lists?.takeIf { it.user == user && it.shelf == shelf && it.readAt > library.library.readAt }
                 val built = try {
                     withContext(Dispatchers.Default) {
-                        val laid = mine.over(library.library)
-                        laid to build(laid, here.values, seed, shelf, ::took)
+                        val fresh = read?.let { library.library.copy(playlists = it.playlists, moods = it.moods ?: library.library.moods, readAt = it.readAt) } ?: library.library
+                        val laid = mine.over(fresh)
+                        // Keyed on the tracks as read and the marks laid over them: laying marks makes a new list of
+                        // tracks on every build, though nothing in it changed.
+                        val reused = base?.takeIf { it.tracks === fresh.tracks && it.marks == mine.marks && it.here === here }
+                        val parts = reused ?: base(laid, here, ::took).copy(tracks = fresh.tracks, marks = mine.marks).also { base = it }
+                        builtLists = laid.playlists to laid.moods
+                        laid to build(laid, parts, seed, shelf, chosen, ::took)
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -270,9 +329,9 @@ class LibraryRepository(
                 // the last written is the latest.
                 // The library by identity: a new read is a new object, and comparing twenty thousand tracks
                 // to find that out is not worth it.
-                val changed = cached?.let { (was, edits) -> was !== library || edits != mine } ?: true
-                if (built != null && changed && (library.fromCloud || mine != OwnEdits.NONE)) {
-                    cached = library to mine
+                val changed = cached?.let { (was, edits, lists) -> was !== library || edits != mine || lists != read } ?: true
+                if (built != null && changed && (library.fromCloud || mine != OwnEdits.NONE || read != null)) {
+                    cached = Triple(library, mine, read)
                     loading.launch { cache.write(user, shelf, built.first).also { took("cache written") } }
                 }
                 took("collection and home, from the ${if (library.fromCloud) "cloud" else "cache"}, ${edited.marks.size + edited.playlists.size} edits")
@@ -318,26 +377,50 @@ class LibraryRepository(
         }
     }
 
-    private fun build(library: CloudLibrary, catalogs: kotlin.collections.Collection<HeldCatalog>, seed: Long, shelf: Shelf, took: (String) -> Unit): LibraryState.Ready {
-        val all = HomeMerge.merge(library.tracks, catalogs)
+    /** One load's combined flows, as one value. */
+    private data class Built(
+        val library: Held,
+        val here: Map<String, HeldCatalog>,
+        val edited: OwnEdits,
+        val chosen: Map<String, Int>,
+        val lists: ListsRead?,
+    )
+
+    /** What a build makes from the tracks and the computers alone, kept by [load] while neither changes. [tracks] (as
+     * read, before this phone's marks), [marks] and [here] are the inputs it was made from. */
+    private data class Base(
+        val tracks: List<com.rpm.player.core.cloud.CloudTrack>,
+        val marks: Map<String, OwnEdits.Mark>,
+        val here: Map<String, HeldCatalog>,
+        val byId: Map<String, com.rpm.player.core.cloud.CloudTrack>,
+        val albums: List<CloudAlbum>,
+        val walls: Walls,
+    )
+
+    private fun base(library: CloudLibrary, here: Map<String, HeldCatalog>, took: (String) -> Unit): Base {
+        val all = HomeMerge.merge(library.tracks, here.values)
         val byId = all.associateBy { it.rpmId }
         val albums = AlbumWall.group(all)
-        took("${albums.size} albums grouped from ${all.size} tracks, ${catalogs.size} computers")
+        took("${albums.size} albums grouped from ${all.size} tracks, ${here.size} computers")
+        val walls = Walls.of(albums)
+        took("${walls.artists.size} artists, ${walls.genres.size} genres")
+        return Base(library.tracks, emptyMap(), here, byId, albums, walls)
+    }
+
+    private fun build(library: CloudLibrary, base: Base, seed: Long, shelf: Shelf, readings: Map<String, Int>, took: (String) -> Unit): LibraryState.Ready {
         val collection = Collection.of(
             shelf = shelf,
-            albums = albums,
-            tracksById = byId,
+            albums = base.albums,
+            tracksById = base.byId,
             plays = Lists.plays(library.plays),
-            lists = Lists.generated(library.moods, byId, shelf) + Lists.own(library.playlists, byId),
+            lists = Lists.generated(library.moods, base.byId, shelf, readings) + Lists.own(library.playlists, base.byId),
             index = library.coverIndex,
             moods = Lists.moods(library.moods),
         )
         took("collection")
         val home = HomeShelf.build(collection, Random(seed))
         took("home")
-        val walls = Walls.of(albums)
-        took("${walls.artists.size} artists, ${walls.genres.size} genres")
-        return LibraryState.Ready(collection, home, walls)
+        return LibraryState.Ready(collection, home, base.walls)
     }
 
     /** The answer, or null for any failure but a cancellation, which is passed on. */

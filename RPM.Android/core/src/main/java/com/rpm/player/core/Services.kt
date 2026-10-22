@@ -137,6 +137,9 @@ class Services(context: Context, val levelling: Levelling, tunerOpensOn: com.rpm
     /** A track menu's writes to the person's own collection: a favourite, a place in a playlist. */
     val ownWriter = OwnWriter(cloud, auth, library, clock)
 
+    /** Making a playlist, adding songs to one and rearranging one, as the phone's playlist pages do. */
+    val playlistWriter = com.rpm.player.core.library.PlaylistWriter(cloud, auth, library, clock)
+
     /** The collections other accounts share with this one, for the collections panel. */
     val shared = SharedCollections(cloud, auth, scope)
 

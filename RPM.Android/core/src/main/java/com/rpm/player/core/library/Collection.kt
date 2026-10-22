@@ -1,6 +1,7 @@
 package com.rpm.player.core.library
 
 import com.rpm.player.core.cloud.Shelf
+import com.rpm.player.core.cloud.CloudMoodList
 import com.rpm.player.core.cloud.CloudMoodLists
 import com.rpm.player.core.cloud.CloudPlaylist
 import com.rpm.player.core.cloud.CloudTrack
@@ -42,6 +43,12 @@ data class TrackList(
     /** The sentence under a mood list's name on home, or null: every other list, and a mood whose songs
      * name no genre. Worked out once here, off the main thread, rather than on every drawing of a card. */
     val blurb: MoodLine?,
+    /** The stamp the store gave a made list when it was last written (milliseconds, the server's clock), which a
+     * write names as the copy it replaces; 0 for a generated list, or a row the store never stamped. */
+    val stamp: Long = 0,
+    /** How many lists' worth of songs the computer sent for a generated list: more than one means another
+     * selection can be shown ([Lists.window]). 1 for a made list. */
+    val slices: Int = 1,
 )
 
 /**
@@ -142,10 +149,10 @@ object Lists {
      * for Favourite tracks, ten for a whole mood). On a borrowed [shelf] Your mix and the listening lists
      * ([OWNER_ONLY]) are left out too: they are about the owner's own listening. The API leaves them out
      * of a borrowed cut, and the iOS app drops them as well. */
-    fun generated(cut: CloudMoodLists?, byId: Map<String, CloudTrack>, shelf: Shelf): List<TrackList> =
+    fun generated(cut: CloudMoodLists?, byId: Map<String, CloudTrack>, shelf: Shelf, readings: Map<String, Int> = emptyMap()): List<TrackList> =
         cut?.lists.orEmpty().filter { it.trackIds.isNotEmpty() && !(shelf != Shelf.Own && it.kind in OWNER_ONLY) }.map { list ->
-            val storeId = list.id ?: "${list.kind}|${list.genre.orEmpty()}|${list.decade}"
-            val shown = window(list.trackIds, list.shows)
+            val storeId = storeIdOf(list)
+            val shown = window(list.trackIds, list.shows, readings[storeId] ?: 0)
             val tracks = shown.mapNotNull(byId::get)
             TrackList(
                 id = "mood/$storeId",
@@ -160,8 +167,12 @@ object Lists {
                 genre = list.genre,
                 decade = list.decade,
                 blurb = MoodBlurb.of(list.kind, tracks.map { it.tags?.genre }),
+                slices = slices(list.trackIds.size, list.shows),
             )
         }.filter { it.tracks.isNotEmpty() }
+
+    /** The id a generated list is kept under: the one the computer sent, or one made from what it is. */
+    fun storeIdOf(list: CloudMoodList): String = list.id ?: "${list.kind}|${list.genre.orEmpty()}|${list.decade}"
 
     /**
      * Which of the plain moods each track is in, by rpmId: every window of every list of those kinds, a genre's cut
@@ -198,15 +209,29 @@ object Lists {
                 decade = 0,
                 // A playlist somebody made and named says what it is in that name (HomeView's stored cards).
                 blurb = null,
+                stamp = list.updatedAt,
             )
         }.sortedBy { (it.name as ListName.Text).text.lowercase() }
 
     /** The desktop's `SmartPlaylists.OwnerOnly`: the kinds it sends for its owner alone. */
     private val OWNER_ONLY = setOf("RightNow", "OnRepeat", "FavoriteTracks", "FirstListens", "Rediscover", "LovedAndForgotten", "LateNight")
 
-    /** The first [shows] of a run, or the whole run when it is shorter or [shows] is not set. */
-    fun window(ids: List<String>, shows: Int): List<String> =
-        if (shows <= 0 || ids.size <= shows) ids else ids.subList(0, shows)
+    /**
+     * The slice of a run that is one list, as the iPhone's `GeneratedLists.window`: the [reading]th, counting the
+     * presses of "another selection", wrapping round. Slices do not overlap, except that the last one reaches back
+     * to be a full list: a run of 130 in lists of 50 gives 0..<50, 50..<100 and 80..<130. A run no longer than one
+     * list, or a cut that does not say how long a list is ([shows] 0), is the list itself.
+     */
+    fun window(ids: List<String>, shows: Int, reading: Int = 0): List<String> {
+        if (shows <= 0 || ids.size <= shows) return ids
+        val count = slices(ids.size, shows)
+        val which = ((reading % count) + count) % count
+        val start = minOf(which * shows, ids.size - shows)
+        return ids.subList(start, start + shows)
+    }
+
+    /** How many slices a run of [size] in lists of [shows] gives: 1 when it is one list or less. */
+    fun slices(size: Int, shows: Int): Int = if (shows <= 0 || size <= shows) 1 else (size + shows - 1) / shows
 
     /** A decade by its number, a mood by the app's word for it, a genre cut by the title the computer
      * gave it or its genre. */

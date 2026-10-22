@@ -75,6 +75,8 @@ import com.rpm.player.core.library.Kicker
 import com.rpm.player.core.library.LibraryState
 import com.rpm.player.core.library.QuickPick
 import com.rpm.player.core.library.TrackList
+import com.rpm.player.phone.library.FramedList
+import com.rpm.player.phone.library.PlaylistSleeve
 import com.rpm.player.core.library.listName
 import com.rpm.player.core.radio.RadioStation
 import com.rpm.player.core.radio.StationLogo
@@ -554,23 +556,10 @@ internal fun ListsRow(heading: String, lists: List<TrackList>, collection: Colle
                     Modifier.width(art).clickable(remember { MutableInteractionSource() }, indication = null) { onOpen(list) },
                     verticalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
-                    val shape = RoundedCornerShape(10.dp)
-                    Box(
-                        Modifier.size(art).clip(shape).background(Color.Black.copy(alpha = 0x22 / 255f)).border(1.dp, Ink.cardBorder, shape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        BasicText(Glyph.playlists, style = icon(26f).copy(color = Ink.white(0x3A)))
-                        collection.cover(list)?.let { picture ->
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current).data(picture).build(),
-                                contentDescription = null,
-                                imageLoader = images,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                    }
-                    BasicText(listName(list.name), maxLines = 1, overflow = TextOverflow.Ellipsis, style = system(12f, FontWeight.Medium).copy(color = Color.White))
+                    val name = listName(list.name)
+                    // A generated list wears its frame here too, as on the playlists view and its page (`FramedList`).
+                    PlaylistSleeve(collection.cover(list), Glyph.playlists, art, corner = 10.dp, mark = 26f, images, FramedList.of(list, name))
+                    BasicText(name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = system(12f, FontWeight.Medium).copy(color = Color.White))
                 }
             }
         }

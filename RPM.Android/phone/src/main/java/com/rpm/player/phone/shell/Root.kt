@@ -85,7 +85,10 @@ import com.rpm.player.phone.radio.RadioPage
 import com.rpm.player.phone.profile.ProfileTab
 import com.rpm.player.phone.player.NowPlayingSheet
 import com.rpm.player.phone.library.LibraryPage
+import com.rpm.player.phone.library.FramedList
 import com.rpm.player.phone.library.PlaylistPage
+import com.rpm.player.phone.library.RereadListsOnReturn
+import com.rpm.player.phone.library.rememberPlaylistWrites
 import com.rpm.player.phone.library.QueuePage
 import com.rpm.player.phone.library.RecordArtists
 import com.rpm.player.phone.library.ReviewWalls
@@ -154,6 +157,8 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
     // them.
     LaunchedEffect(Unit) { services.radio.refreshRules() }
     val stations = remember(heard, rules) { rules.shown(heard.map { it.station }).take(HOME_STATIONS) }
+    val playlistWrites = rememberPlaylistWrites(services)
+    RereadListsOnReturn(services)
 
     // ── what can be done to a song or a record from anywhere ──
 
@@ -255,8 +260,9 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
     @Composable
     fun playlist(list: TrackList, onBack: () -> Unit) {
         val queue = { list.tracks.map { queued(collection, it) } }
+        val shownName = listName(list.name)
         PlaylistPage(
-            listName(list.name),
+            shownName,
             list.tracks,
             list.missing,
             list.blurb,
@@ -269,6 +275,12 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             onShuffle = { play(queue().shuffled(), 0, Tapped.List) },
             onBack = onBack,
             onPlayAll = { play(queue(), 0, Tapped.List) },
+            framed = FramedList.of(list, shownName),
+            // Another selection, only where the computer sent enough songs for one.
+            onNewList = if (list.slices > 1) ({ services.library.newList(list) }) else null,
+            adding = playlistWrites.adding(collection, list),
+            canReorder = playlistWrites.canReorder(collection, list),
+            onMove = { order -> playlistWrites.move(collection, list, order) },
         )
     }
 
@@ -384,6 +396,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                                     val at = album.tracks.indexOfFirst { it.rpmId == hit.track.rpmId }
                                     if (at >= 0) play(queueOf(collection.shelf, album, collection.cover(album), collection.disc(album)), at, Tapped.Song)
                                 },
+                                onMakePlaylist = playlistWrites::make,
                             )
                         }
                     }

@@ -84,6 +84,10 @@ import com.rpm.player.phone.library.GenrePage
 import com.rpm.player.phone.radio.RadioPage
 import com.rpm.player.phone.profile.ProfileTab
 import com.rpm.player.phone.player.NowPlayingSheet
+import com.rpm.player.phone.player.OnListeningEnded
+import com.rpm.player.phone.player.PutAwayWhenPlayedOut
+import com.rpm.player.phone.player.rememberPlayerWiring
+import com.rpm.player.phone.library.LibraryMode
 import com.rpm.player.phone.library.LibraryPage
 import com.rpm.player.phone.library.FramedList
 import com.rpm.player.phone.library.WallStanding
@@ -391,10 +395,15 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
         },
     )
 
-    // The listening ended, because the queue was stopped or played out. The player comes down. This reads the
-    // player's state, rather than being told by whoever pressed stop, because there is more than one way to reach that
-    // state.
-    LaunchedEffect(now == null) { if (now == null) playerUp = false }
+    // The player's wiring: its lyrics, the speakers, the heart, and the way out when the listening ends.
+    val wiring = rememberPlayerWiring(services, collection, now)
+    PutAwayWhenPlayedOut(controller)
+    // The listening ended, because the queue was stopped or played out: the player goes down, and the tab is the one the
+    // music came from, the library for a record and the radio for a station. Home is never the answer.
+    OnListeningEnded(controller, now) { wasTheRadio ->
+        wiring.leaving = true
+        tab = if (wasTheRadio) Tab.Radio else Tab.Library
+    }
 
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
@@ -468,7 +477,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             showing = tab,
             onShow = { tab = it },
             miniPlayer = if (now != null && controller != null) {
-                { MiniPlayer(now, controller, images, backdrop, onOpen = { playerUp = true }) }
+                { MiniPlayer(now, controller, images, backdrop, onOpen = { wiring.leaving = false; playerUp = true }) }
             } else {
                 null
             },
@@ -476,16 +485,37 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                 .align(Alignment.BottomCenter)
                 .onSizeChanged { chrome = with(density) { it.height.toDp() } },
         )
-        // Over everything, the tabs and the mini player included.
-        if (playerUp && now != null && controller != null) {
+        // Over everything, the tabs and the mini player included. It stays on the last thing played while it goes down
+        // after the listening ended.
+        val sheetNow = now ?: wiring.lastNow
+        if (playerUp && sheetNow != null && controller != null) {
             val album = playing?.let { collection.albumOf[it] }
+            val artist = playing?.let { wiring.artistOf(it, ready) }
             NowPlayingSheet(
-                now,
+                sheetNow,
                 controller,
                 images,
-                // The records are on the library's stack, so the page is pushed there.
-                onAlbum = album?.let { { tab = Tab.Library; opened = listOf(Step.Record(it.key)) } },
-                onClosed = { playerUp = false },
+                queue,
+                sittingFrom,
+                lyrics = wiring.lyrics.sheet,
+                lookingUpLyrics = wiring.lyrics.looking,
+                onNeedLyrics = { wiring.readLyrics(sheetNow) },
+                marked = wiring.isMarked(playing),
+                onMark = playing?.let { id -> wiring.canMark(sheetNow).takeIf { it }?.let { { on: Boolean -> wiring.mark(id, on) } } },
+                // The playlist picker, over everything, for the song playing. Not for a song on a borrowed shelf: a
+                // playlist names this account's songs.
+                onFile = playing?.let { collection.tracksById[it] }?.takeIf { wiring.canMark(sheetNow) }?.let { track -> { file(track) } },
+                // The records are on the library's albums stack, so the page is pushed there.
+                onAlbum = album?.let { { tab = Tab.Library; settings.changeLibraryMode(LibraryMode.Albums); opened = listOf(Step.Record(it.key)) } },
+                // The artists view of the library, with the artist's page pushed on its stack.
+                onArtist = artist?.let { { tab = Tab.Library; settings.changeLibraryMode(LibraryMode.Artists); opened = listOf(Step.Artist(it.name)) } },
+                speakers = wiring.speakers,
+                sleep = services.sleep,
+                leaving = wiring.leaving,
+                onClosed = {
+                    playerUp = false
+                    wiring.leaving = false
+                },
             )
         }
         SongOverlays(

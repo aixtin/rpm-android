@@ -5,6 +5,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.media.AudioManager
 import android.os.Bundle
+import android.view.KeyEvent
+import com.rpm.player.core.cast.CastState
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -100,6 +102,23 @@ class MainActivity : ComponentActivity() {
         connecting?.let(MediaController::releaseFuture)
         connecting = null
         super.onStop()
+    }
+
+    /**
+     * The phone's volume keys move the speaker while the sound is going to one: the iPhone's `VolumeKeys`. No sound comes
+     * out of the phone then, so its own volume does nothing, and the keys are the one control that works without looking.
+     * Each press is one of the speaker's steps; the phone's own level is left where it is.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val up = when (event.keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> true
+            KeyEvent.KEYCODE_VOLUME_DOWN -> false
+            else -> return super.dispatchKeyEvent(event)
+        }
+        val casting = services.casting
+        if (casting.state.value !is CastState.On || casting.roomVolume.value == null) return super.dispatchKeyEvent(event)
+        if (event.action == KeyEvent.ACTION_DOWN) casting.stepRoomVolume(up)
+        return true
     }
 
     override fun onResume() {

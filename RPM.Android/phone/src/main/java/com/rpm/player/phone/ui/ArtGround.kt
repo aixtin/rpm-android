@@ -12,9 +12,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import com.rpm.player.phone.design.BlurredPicture
+import com.rpm.player.core.room.Rgb
 
 /**
  * [picture] is anything the image loader can draw: a record's cover, or an artist's photograph on the home page.
+ * [accent] is the cover's accent ([rememberAccent]), laid over the blurred picture; none for a photograph.
  *
  * The background of a page that uses a record as its look. The iPhone app has the same `ArtGround`
  * (RPMUI/ArtGround.swift), and the album page and the player both use it. It is the app's own background,
@@ -23,13 +25,18 @@ import com.rpm.player.phone.design.BlurredPicture
  * it loads ([BlurredPicture]), not on every frame.
  */
 @Composable
-fun ArtGround(picture: Any?, images: ImageLoader) {
+fun ArtGround(picture: Any?, images: ImageLoader, accent: Rgb? = null) {
     Box(Modifier.fillMaxSize()) {
         VinylGround()
         // A new picture fades in over the old one. The iPhone app does the same when the record changes.
         Crossfade(picture, animationSpec = tween(350), label = "ground") { shown ->
             if (shown == null) return@Crossfade
             BlurredPicture(shown, images, sigma = 60.dp, modifier = Modifier.fillMaxSize())
+        }
+        // The colour read off the picture, laid over it at about a fifth, so a ground made from a grey sleeve still has
+        // the record's own cast. A photograph of a person gets none: the colour there is the photograph's.
+        if (picture != null && accent != null) {
+            Box(Modifier.fillMaxSize().background(accent.color().copy(alpha = 0.18f)))
         }
         Box(
             Modifier.fillMaxSize().background(

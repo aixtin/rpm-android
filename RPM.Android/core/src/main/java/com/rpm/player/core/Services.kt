@@ -241,6 +241,10 @@ class Services(context: Context, val levelling: Levelling, tunerOpensOn: com.rpm
     /** Sending to Cast devices: discovery, the sitting, and the route the playback service's sink reads. */
     val casting = Casting(context, scope, nowPlayingPictures)
 
+    /** When the player pauses by itself, kept here so it counts on while no screen is shown. The playback service
+     * attaches its player to it. */
+    val sleep = com.rpm.player.core.playback.SleepClock()
+
     init {
         warmUp()
     }

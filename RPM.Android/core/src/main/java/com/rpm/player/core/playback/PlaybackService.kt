@@ -160,6 +160,7 @@ class PlaybackService : MediaSessionService() {
         }
         session = builder.build()
         services.casting.attach(player)
+        services.sleep.attach(player)
         scope.launch {
             combine(services.casting.state, services.casting.roomVolume) { state, level -> state to level }
                 .distinctUntilChanged()
@@ -372,6 +373,7 @@ class PlaybackService : MediaSessionService() {
         trackCounter.settle()?.let(::bankPlay)
         // The cast ends with the player it was sending from.
         services.casting.detach()
+        services.sleep.detach()
         scope.cancel()
         session?.run {
             player.release()

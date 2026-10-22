@@ -6157,4 +6157,6 @@
 
     <!-- Line under the title of the TV player's Now playing drawer while rearranging is on. OK, Up and Down are the TV remote's keys. -->
     <string name="Tv_QueueRearrangeHint">按 OK 拿起歌曲，上下键移动，再按 OK 放下。</string>
+    <!-- Row in the Android phone's speaker picker that plays on the phone itself. -->
+    <string name="Rpm_Cast_ThisAndroidPhone">这台手机</string>
 </resources>

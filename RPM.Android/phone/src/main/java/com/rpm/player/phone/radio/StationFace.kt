@@ -50,18 +50,30 @@ fun StationFace(
     inset: Dp,
     modifier: Modifier = Modifier,
     fallback: @Composable () -> Unit,
+) = StationFace(StationLogo.of(station, logoStamp), images, edge, inset, modifier, fallback)
+
+/** The same face from the logo a playing station carries ([com.rpm.player.core.playback.StationPlaying.logo]): the
+ * mini player and the player have the station only as the queue item names it. */
+@Composable
+fun StationFace(
+    logo: StationLogo,
+    images: ImageLoader,
+    edge: Dp,
+    inset: Dp,
+    modifier: Modifier = Modifier,
+    fallback: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
     val pixels = with(LocalDensity.current) { edge.roundToPx() }.coerceAtLeast(1)
-    val request = remember(station.uuid, logoStamp, pixels) {
+    val request = remember(logo, pixels) {
         ImageRequest.Builder(context)
-            .data(StationLogo.of(station, logoStamp))
+            .data(logo)
             .size(pixels)
-            .transformations(StationBadge(station.uuid, inset / edge, pixels))
+            .transformations(StationBadge(logo.uuid, inset / edge, pixels))
             .crossfade(FADE_MS)
             .build()
     }
-    var worn by remember(station.uuid, logoStamp) { mutableStateOf(false) }
+    var worn by remember(logo) { mutableStateOf(false) }
     Box(modifier, contentAlignment = Alignment.Center) {
         if (!worn) Box(Modifier.fillMaxSize().padding(inset), contentAlignment = Alignment.Center) { fallback() }
         AsyncImage(

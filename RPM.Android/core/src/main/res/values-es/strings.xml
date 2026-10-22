@@ -6157,4 +6157,6 @@
 
     <!-- Line under the title of the TV player's Now playing drawer while rearranging is on. OK, Up and Down are the TV remote's keys. -->
     <string name="Tv_QueueRearrangeHint">OK toma una canción, Arriba y Abajo la mueven, OK la deja.</string>
+    <!-- Row in the Android phone's speaker picker that plays on the phone itself. -->
+    <string name="Rpm_Cast_ThisAndroidPhone">Este teléfono</string>
 </resources>

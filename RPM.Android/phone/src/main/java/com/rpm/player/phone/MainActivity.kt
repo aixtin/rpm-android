@@ -74,6 +74,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Back in the front: the plays and station listens counted here go up, as the iPhone's `syncPlays` sends them
+        // each time the app becomes active. Other devices' counts are read with the library.
+        services.trackPlaysSync.pass()
+        services.radio.listensSync.pass()
         val future = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java)))
             .setListener(
                 object : MediaController.Listener {

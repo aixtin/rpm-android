@@ -70,6 +70,8 @@ import com.rpm.player.phone.design.Backdrop
 import com.rpm.player.phone.design.GlassButton
 import com.rpm.player.phone.design.GlassCard
 import com.rpm.player.phone.design.Glyph
+import com.rpm.player.phone.design.PullToRefresh
+import com.rpm.player.phone.design.pinch
 import com.rpm.player.phone.design.Ink
 import com.rpm.player.phone.design.PageHeading
 import com.rpm.player.phone.design.backdropSource
@@ -127,10 +129,14 @@ private val OFFERED = listOf(
  * The results are the records that the words name, which open, and the songs that they find, which play their
  * record from that song.
  *
- * Not yet implemented: pinch to resize the wall, pull to refresh, and a song's menu on the results.
+ * Two fingers pinch the covers bigger or smaller, and the size is kept. A pull down from the top of the wall reads the
+ * collection again. On a borrowed collection the counts line starts with whose it is.
+ *
+ * Not yet implemented: a song's menu on the results.
  *
  * @param bottomRoom how much of the bottom of the page the chrome covers.
  * @param onMakePlaylist makes a playlist from the playlists view's plus key ([PlaylistsPage]).
+ * @param reading the collection's reading: whether a pull's read is running, and whose collection it is.
  */
 @Composable
 fun LibraryPage(
@@ -152,18 +158,19 @@ fun LibraryPage(
     onMakePlaylist: suspend (name: String, folder: List<String>, tracks: List<CloudTrack>) -> String?,
     standing: WallStanding = WallStanding.Showing,
     onRetry: () -> Unit = {},
+    reading: WallReading,
 ) {
     when (settings.libraryMode) {
         LibraryMode.Playlists -> {
-            PlaylistsPage(ready, images, settings, onMode = settings::changeLibraryMode, bottomRoom = bottomRoom, queue = queue, onOpenQueue = onOpenQueue, marked = marked, onOpenMarked = onOpenMarked, onOpen = onOpenList, onMake = onMakePlaylist)
+            PlaylistsPage(ready, images, settings, onMode = settings::changeLibraryMode, bottomRoom = bottomRoom, queue = queue, onOpenQueue = onOpenQueue, marked = marked, onOpenMarked = onOpenMarked, onOpen = onOpenList, onMake = onMakePlaylist, onReread = reading.onReread)
             return
         }
         LibraryMode.Artists -> {
-            ArtistsPage(ready, images, artwork, settings, bottomRoom = bottomRoom, onOpen = onOpenArtist)
+            ArtistsPage(ready, images, artwork, settings, bottomRoom = bottomRoom, onOpen = onOpenArtist, reading = reading)
             return
         }
         LibraryMode.Genres -> {
-            GenresPage(ready, images, settings, bottomRoom = bottomRoom, onOpen = onOpenGenre)
+            GenresPage(ready, images, settings, bottomRoom = bottomRoom, onOpen = onOpenGenre, reading = reading)
             return
         }
         LibraryMode.Albums -> Unit
@@ -171,6 +178,8 @@ fun LibraryPage(
     val ground = rememberBackdrop()
     val page = rememberBackdrop()
     var sorting by remember { mutableStateOf(false) }
+    // The size under the fingers during a pinch. It is stored only when the pinch ends.
+    var pinching by remember { mutableStateOf<Double?>(null) }
     val order = settings.libraryOrder
     val mode = settings.libraryMode
     // Hidden until the search key is pressed, as on iPhone. The words are cleared when the search is closed.
@@ -216,7 +225,7 @@ fun LibraryPage(
             VinylGround(Modifier.backdropSource(ground))
             Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Box(Modifier.padding(start = 20.dp, end = 16.dp, bottom = 10.dp)) {
-                    PageHeading(stringResource(R.string.Settings_Library), counts(ready.albums)) {
+                    PageHeading(stringResource(R.string.Settings_Library), lent(reading.lender, counts(ready.albums))) {
                         KeyGroup(ground) {
                             HeaderKey(Glyph.search) { if (searching) closeSearch() else { searching = true; raise = true } }
                             HeaderKey(Glyph.sort) { sorting = true }
@@ -234,9 +243,23 @@ fun LibraryPage(
                         searching && asked.isNotEmpty() -> SearchResults(asked, answer, ready.collection, images, playing, bottomRoom, onOpen, onPlaySong)
                         standing == WallStanding.Reading -> Reading()
                         standing == WallStanding.Trouble -> Failed(onRetry)
-                        ready.albums.isEmpty() -> Empty(lent = ready.collection.shelf != Shelf.Own)
+                        ready.albums.isEmpty() -> Empty(reading.lender != null)
                         else -> ordered?.let { wall ->
-                            AlbumWall(wall, { ready.collection.cover(it) }, images, targetStride = 194.0, bottomRoom = bottomRoom, onOpen = onOpen)
+                            // Only the wall reads the collection again on a pull, not the search's answers.
+                            PullToRefresh(reading.refreshing, reading.onRefresh) {
+                                AlbumWall(
+                                    wall,
+                                    { ready.collection.cover(it) },
+                                    images,
+                                    targetStride = pinching ?: settings.wallStride,
+                                    bottomRoom = bottomRoom,
+                                    onOpen = onOpen,
+                                    modifier = Modifier.pinch(
+                                        onZoom = { pinching = pinchedStride(settings.wallStride, it, WALL_SMALLEST) },
+                                        onEnd = { pinching?.let(settings::changeWallStride); pinching = null },
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -283,6 +306,8 @@ internal fun HeaderKey(glyph: String, onClick: () -> Unit) {
 internal fun ModeTabs(mode: LibraryMode, onMode: (LibraryMode) -> Unit, backdrop: Backdrop) {
     val capsule = RoundedCornerShape(percent = 50)
     val unlit = 52.dp
+    // A tick under the thumb as the view changes (`Haptics.pick()` on iPhone).
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     BoxWithConstraints(
         Modifier
             .padding(horizontal = 20.dp)
@@ -302,7 +327,10 @@ internal fun ModeTabs(mode: LibraryMode, onMode: (LibraryMode) -> Unit, backdrop
                     Modifier
                         .width(width)
                         .height(32.dp)
-                        .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Tab) { onMode(choice) },
+                        .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Tab) {
+                            if (!chosen) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            onMode(choice)
+                        },
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

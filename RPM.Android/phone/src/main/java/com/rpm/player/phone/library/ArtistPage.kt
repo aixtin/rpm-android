@@ -65,8 +65,10 @@ import coil3.request.ImageRequest
 import com.rpm.player.core.R
 import com.rpm.player.core.cloud.CloudTrack
 import com.rpm.player.core.library.ArtistShelves
-import com.rpm.player.core.library.ArtistSongListing
-import com.rpm.player.core.library.ArtistTrackGrouping
+import com.rpm.player.core.library.RelatedArtists
+import com.rpm.player.core.library.Walls
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.rpm.player.core.library.ArtistWallItem
 import com.rpm.player.core.library.ArtistPopular
 import com.rpm.player.core.art.ArtScene
@@ -119,9 +121,9 @@ private const val HELD = 0.2f
  * One artist's page. It matches the iPhone's `ArtistPage` (RPMUI/ArtistPage.swift). From the top: the artist's
  * photograph, a page wide and as tall as that. Their name is at its foot. Then the encyclopedia text, Play all,
  * and shuffle. Then their popular songs. Then their records on shelves by kind: their own records, records made
- * with others, live albums, soundtracks, compilations, singles, and the records they appear on. Last, every song
- * by the artist, under All tracks. The songs are grouped by letter, or by year, once there are more than twenty.
- * The page uses the photograph as its blurred background.
+ * with others, live albums, soundtracks, compilations, singles, and the records they appear on. Last, the acts
+ * related to them in the collection. There is no list of every song: search finds any of them, as on the iPhone
+ * (dropped there on 2026-10-18). The page uses the photograph as its blurred background.
  *
  * The popular songs are ranked by how often each song has been played by all listeners ([ArtistPopular]). The
  * plays are asked for up to four records at a time. A page opened again starts from the plays that are already known.
@@ -132,9 +134,9 @@ private const val HELD = 0.2f
  * is the artist's name.
  *
  * Not yet implemented: the background that the page shows before a photograph arrives, the stretch on an
- * over-pull. A song's long press, among the popular songs or under All tracks, opens the song menu ([LocalSongMenu]).
+ * over-pull. A song's long press among the popular songs opens the song menu ([LocalSongMenu]).
  *
- * @param playing the id of the track playing, which the mark in the margin follows.
+ * @param walls the artists wall, which the related acts are picked from.
  * @param onPlay plays the songs from the one at that index: a tap on a song.
  * @param onPlayAll the Play and Shuffle keys: all of these songs, in this order. See [AlbumPage] for why a key and a
  * row differ.
@@ -146,12 +148,12 @@ fun ArtistPage(
     images: ImageLoader,
     dossiers: Dossiers,
     worldPlays: WorldPlays,
-    grouping: ArtistTrackGrouping,
-    onGrouping: (ArtistTrackGrouping) -> Unit,
-    playing: String?,
+    walls: Walls,
+    artwork: Artwork,
     bottomRoom: Dp,
     onPlay: (List<CloudTrack>, Int) -> Unit,
     onOpen: (CloudAlbum) -> Unit,
+    onOpenArtist: (ArtistWallItem) -> Unit,
     onBack: () -> Unit,
     onPlayAll: (List<CloudTrack>) -> Unit = { onPlay(it, 0) },
 ) {
@@ -162,8 +164,7 @@ fun ArtistPage(
     val statusBar = WindowInsets.statusBars.asPaddingValues(density).calculateTopPadding()
     val portraits = (LocalContext.current.applicationContext as PhoneApplication).portraits
     val shelves = remember(artist, collection) { ArtistShelves.of(artist, collection.albums.associateBy { it.key }) }
-    val noYear = stringResource(R.string.AlbumGroup_NoYear)
-    val listing = remember(shelves, grouping, noYear) { ArtistSongListing(shelves.songs, grouping, noYear) }
+    val related = rememberRelated(artist, walls, collection)
     val popular = rememberPopular(shelves, worldPlays)
     // Identified through their own records, never by the name alone (ArtistSubject.of).
     val subject = remember(artist.name, shelves) { ArtistSubject.of(artist.name, shelves) }
@@ -237,7 +238,9 @@ fun ArtistPage(
                 shelf(R.string.Artists_Compilations, shelves.compilations, collection, images, sleeve, onOpen)
                 shelf(R.string.Artists_Singles, shelves.singles, collection, images, sleeve, onOpen)
                 shelf(R.string.Artists_AppearsOn, shelves.appearances, collection, images, sleeve, onOpen)
-                songs(listing, playing, onGrouping) { at -> onPlay(listing.songs.map { it.first }, at) }
+                if (related.isNotEmpty()) {
+                    item(key = "related") { Related(related, collection, images, artwork, onOpenArtist) }
+                }
                 item(key = "foot") { Spacer(Modifier.height(40.dp + bottomRoom)) }
             }
         }
@@ -387,83 +390,31 @@ private fun LazyListScope.shelf(
     }
 }
 
-/** All tracks: the heading, with the letter-or-year switch once the songs are grouped, then the groups. */
-private fun LazyListScope.songs(listing: ArtistSongListing, playing: String?, onGrouping: (ArtistTrackGrouping) -> Unit, onPlay: (Int) -> Unit) {
-    if (listing.songs.isEmpty()) return
-    item(key = "songs") {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 22.dp, bottom = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicText(stringResource(R.string.Artists_AllTracks).uppercase(), Modifier.weight(1f), style = kicker())
-            if (listing.isGrouped) GroupingSwitch(listing.grouping, onGrouping)
-        }
-    }
-    var at = 0
-    for (group in listing.groups) {
-        group.heading?.let { heading ->
-            item(key = "group:$heading") {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 12.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    BasicText(heading, style = kicker())
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Ink.white(0x1F)))
-                }
-            }
-        }
-        for ((track, album) in group.songs) {
-            val index = at++
-            item(key = "song:${track.rpmId}:$index") { SongRow(track, album, playing = track.rpmId == playing) { onPlay(index) } }
-        }
-    }
-}
-
-/** By letter or by year: two keys on one small glass face. The chosen one is lit (`TrackGroupingSwitch` on iPhone). */
+/**
+ * The acts related to them in this collection ([RelatedArtists]), worked out off the main thread because the rule goes
+ * over every track of the collection, and shown in one step. Empty until then, and for an act with none.
+ */
 @Composable
-private fun GroupingSwitch(grouping: ArtistTrackGrouping, onGrouping: (ArtistTrackGrouping) -> Unit) {
-    val face = RoundedCornerShape(7.dp)
-    Row(Modifier.clip(face).background(Ink.glassWash).border(1.dp, Ink.white(0x22), face).padding(1.dp)) {
-        for ((choice, glyph) in listOf(ArtistTrackGrouping.Letter to Glyph.byLetter, ArtistTrackGrouping.Year to Glyph.byYear)) {
-            val on = grouping == choice
-            Box(
-                Modifier
-                    .size(40.dp, 30.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (on) Ink.selectedWash else Color.Transparent)
-                    .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Tab) { if (!on) onGrouping(choice) },
-                contentAlignment = Alignment.Center,
-            ) {
-                BasicText(glyph, style = icon(13f).copy(color = if (on) Color.White else Ink.white(0xCC)))
-            }
-        }
+private fun rememberRelated(artist: ArtistWallItem, walls: Walls, collection: Collection): List<ArtistWallItem> {
+    val related by produceState(emptyList<ArtistWallItem>(), artist, walls, collection) {
+        value = withContext(Dispatchers.Default) { RelatedArtists.of(artist, walls, collection.albums.associateBy { it.key }, collection.lists) }
     }
+    return related
 }
 
 /**
- * One song: the playing mark in the margin, the title (with the E for explicit lyrics) over the name of its
- * record, and the length. The row is lit while a finger is on it.
+ * The related acts, as the artists wall's own boxes, which open the same page. It is the last section, as on the
+ * iPhone (`ArtistPage.relatedSection`).
  */
 @Composable
-private fun SongRow(track: CloudTrack, album: CloudAlbum, playing: Boolean, onClick: () -> Unit) {
-    val presses = remember { MutableInteractionSource() }
-    val pressed by presses.collectIsPressedAsState()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = 56.dp)
-            .background(if (pressed) Ink.white(0x24) else Color.Transparent)
-            .songPress(track, presses, onClick)
-            .padding(start = 8.dp, end = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.width(3.dp).height(28.dp).clip(RoundedCornerShape(percent = 50)).background(if (playing) Color.White else Color.Transparent))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                BasicText(track.title.orEmpty(), Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis, style = display(16f).copy(color = Color.White))
-                if (track.tags?.advisory == EXPLICIT) ExplicitMark()
-            }
-            BasicText(album.album, maxLines = 1, overflow = TextOverflow.Ellipsis, style = display(13f).copy(color = Ink.white(0x77)))
+private fun Related(acts: List<ArtistWallItem>, collection: Collection, images: ImageLoader, artwork: Artwork, onOpenArtist: (ArtistWallItem) -> Unit) {
+    Column(Modifier.padding(top = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        BasicText(stringResource(R.string.Artists_Related).uppercase(), Modifier.padding(horizontal = 20.dp), style = kicker())
+        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(acts, key = { it.name }) { act -> ArtistBox(act, RELATED_BOX, collection, images, artwork) { onOpenArtist(act) } }
         }
-        BasicText(length(track.tags?.durationSeconds ?: 0.0), style = display(13f).copy(color = Ink.white(0x66)))
     }
 }
+
+/** The width of a related act's box (`ArtistBox(width: 200)` on iPhone). */
+private val RELATED_BOX = 200.dp

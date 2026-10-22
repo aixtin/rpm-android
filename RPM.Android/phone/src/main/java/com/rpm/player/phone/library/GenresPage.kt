@@ -82,6 +82,7 @@ import com.rpm.player.core.library.WordmarkPaths
 import com.rpm.player.phone.PhoneSettings
 import com.rpm.player.phone.design.BackKey
 import com.rpm.player.phone.design.Ink
+import com.rpm.player.phone.design.PullToRefresh
 import com.rpm.player.phone.design.PageHeading
 import com.rpm.player.phone.design.backdropSource
 import com.rpm.player.phone.design.display
@@ -123,7 +124,7 @@ private val ERAS_APART = 18.dp
  * lettering at the foot, and the number of records in that genre. Which genre a record is in comes from
  * [GenreWall]. That is built with the other walls when the library is read.
  *
- * Not yet implemented: pull to refresh.
+ * A pull down from the top reads the collection again.
  */
 @Composable
 fun GenresPage(
@@ -132,6 +133,7 @@ fun GenresPage(
     settings: PhoneSettings,
     bottomRoom: Dp,
     onOpen: (GenreWallItem) -> Unit,
+    reading: WallReading,
 ) {
     val ground = rememberBackdrop()
     val genres = ready.walls.genres
@@ -145,7 +147,7 @@ fun GenresPage(
             Box(Modifier.weight(1f)) {
                 if (genres.isEmpty()) {
                     Empty(lent = ready.collection.shelf != Shelf.Own)
-                } else {
+                } else PullToRefresh(reading.refreshing, reading.onRefresh) {
                     val grid = rememberLazyGridState()
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),

@@ -158,6 +158,24 @@ class PhoneSettings(context: Context) {
         prefs.edit().putString(KEY_LIBRARY_MODE, mode.stored).apply()
     }
 
+    /** The size the person pinched the album wall's covers to, and the artists' boxes to, in points: the iPhone's
+     * `library.tileArt.v2` (194 at first) and `library.artistBox.v1` (190). Stored when a pinch ends, not during it. */
+    var wallStride by mutableStateOf(prefs.getFloat(KEY_WALL_STRIDE, 194f).toDouble())
+        private set
+
+    var artistBox by mutableStateOf(prefs.getFloat(KEY_ARTIST_BOX, 190f).toDouble())
+        private set
+
+    fun changeWallStride(stride: Double) {
+        wallStride = stride
+        prefs.edit().putFloat(KEY_WALL_STRIDE, stride.toFloat()).apply()
+    }
+
+    fun changeArtistBox(stride: Double) {
+        artistBox = stride
+        prefs.edit().putFloat(KEY_ARTIST_BOX, stride.toFloat()).apply()
+    }
+
     /** How the playlists view shows a folder: covers or rows (`playlists.layout`). It opens in the layout last chosen. */
     var playlistLayout by mutableStateOf(PlaylistLayout.of(prefs.getString(KEY_PLAYLIST_LAYOUT, null)) ?: PlaylistLayout.List)
         private set
@@ -279,6 +297,8 @@ class PhoneSettings(context: Context) {
         const val KEY_LIBRARY_MODE = "library.mode"
         const val KEY_ARTIST_ORDER = "library.artistOrder"
         const val KEY_TRACK_GROUPING = "artist.trackGrouping"
+        const val KEY_WALL_STRIDE = "library.tileArt.v2"
+        const val KEY_ARTIST_BOX = "library.artistBox.v1"
         const val KEY_PLAYLIST_LAYOUT = "playlists.layout"
         const val KEY_PLAYLIST_STRIDE = "playlists.tileArt.v1"
     }

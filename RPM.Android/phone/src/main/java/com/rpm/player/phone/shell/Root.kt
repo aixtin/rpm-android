@@ -35,6 +35,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import com.rpm.player.core.R
@@ -83,6 +91,10 @@ import com.rpm.player.phone.design.rememberBackdrop
 import com.rpm.player.phone.design.system
 import com.rpm.player.phone.home.HomeActions
 import com.rpm.player.phone.home.HomePage
+import com.rpm.player.phone.home.LibraryPicker
+import com.rpm.player.phone.home.ShelfRow
+import com.rpm.player.phone.library.LibraryMode
+import com.rpm.player.phone.library.WallReading
 import com.rpm.player.phone.library.AlbumPage
 import com.rpm.player.phone.library.ArtistPage
 import com.rpm.player.phone.library.GenrePage
@@ -156,7 +168,8 @@ fun Root(services: Services, settings: PhoneSettings, signIn: SignIn, controller
                 }
                 Shell(services, settings, ready, controller, sittingFrom, wall)
             }
-            shown is LibraryState.Loading -> Waiting(stringResource(R.string.Rpm_Library_Reading))
+            // The words say "your library", which is wrong over somebody else's: the record alone says the app is waiting.
+            shown is LibraryState.Loading -> Waiting(if (shown.shelf != Shelf.Own) null else stringResource(R.string.Rpm_Library_Reading))
             // Signed in, before the library has started: the iPhone's `starting`, the record alone.
             else -> Waiting(null)
         }
@@ -210,6 +223,26 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
     // The marked songs exist only on the person's own shelf. Another account's songs cannot be marked by this one.
     val marked = remember(collection) { if (collection.shelf == Shelf.Own) MarkedSongs.of(collection.albums) else null }
     val heard by services.radio.listens.top.collectAsStateWithLifecycle()
+    // The launch's wait cover (`covering` and `homeReady` on iPhone). The shell is new for each collection shown, so a
+    // switch to another collection is covered the same way.
+    var homeReady by remember { mutableStateOf(false) }
+    var covering by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(COVER_FIRST_MS)
+        withTimeoutOrNull(HOME_WAITS_AT_MOST_MS) { snapshotFlow { homeReady }.first { it } }
+        covering = false
+    }
+    // Whether a pull on a wall is reading the collection again.
+    val refreshing by services.library.refreshing.collectAsStateWithLifecycle()
+    // The collections this account can show: its own, and those shared with it (`shelfRows` on iPhone).
+    var picking by rememberSaveable { mutableStateOf(false) }
+    val shared by services.shared.list.collectAsStateWithLifecycle()
+    val ownFace by services.ownFace.face.collectAsStateWithLifecycle()
+    val ownName = stringResource(R.string.Rpm_Share_OwnLibrary)
+    val unknownName = stringResource(R.string.Rpm_Share_Unknown)
+    val shelfRows = remember(shared, ownFace, collection.shelf, ownName, unknownName) {
+        ShelfRow.of(services.shared.rows(collection.shelf), collection.shelf, ownFace, ownName, unknownName)
+    }
     val rules by services.radio.rules.collectAsStateWithLifecycle()
     // The station rules are read once at start, and again at most once an hour. Home's stations are filtered through
     // them.
@@ -356,12 +389,12 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
             images,
             services.dossiers,
             services.worldPlays,
-            settings.trackGrouping,
-            onGrouping = settings::changeTrackGrouping,
-            playing = playing,
+            ready.walls,
+            services.artwork,
             bottomRoom = chrome,
             onPlay = { tracks, at -> play(tracks.map { queued(collection, it) }, at, Tapped.Song) },
             onOpen = { push(Step.Record(it.key)) },
+            onOpenArtist = { push(Step.Artist(it.name)) },
             onBack = onBack,
             onPlayAll = { tracks -> play(tracks.map { queued(collection, it) }, 0, Tapped.List) },
         )
@@ -486,6 +519,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                                 onMakePlaylist = playlistWrites::make,
                                 standing = wall,
                                 onRetry = services.library::retry,
+                                reading = WallReading(refreshing, services.library::refresh, shelfRows.firstOrNull { it.isOpen && !it.isOwn }?.name, services.library::rereadLists),
                             )
                         }
                     }
@@ -496,7 +530,20 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                     val step = stack.lastOrNull()
                     pages.SaveableStateProvider("home:" + (step?.saved ?: "")) {
                         page(step, push = { homeOpened = homeOpened + it }, onBack = { homeOpened = homeOpened.dropLast(1) }) {
-                            HomePage(ready, stations, rules.logoStamp, images, bottomRoom = chrome, actions = homeActions)
+                            HomePage(
+                                ready,
+                                stations,
+                                rules.logoStamp,
+                                images,
+                                bottomRoom = chrome,
+                                actions = homeActions,
+                                backdrop = backdrop,
+                                onScreen = tab == Tab.Home && homeOpened.isEmpty(),
+                                onSwitch = if (shelfRows.size > 1) ({ picking = true }) else null,
+                                // The lock's key: the library, on its records.
+                                onAddMusic = { tab = Tab.Library; settings.changeLibraryMode(LibraryMode.Albums) },
+                                onReady = { homeReady = true },
+                            )
                         }
                     }
                 }
@@ -534,6 +581,25 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                 .align(Alignment.BottomCenter)
                 .onSizeChanged { chrome = with(density) { it.height.toDp() } },
         )
+        // The wait cover stays over the first frames, then until home has drawn what it opens on, so the app shows a
+        // finished page and not one filling in. Taps are held back while it is up.
+        WaitCover(covering, words = collection.shelf == Shelf.Own)
+        // Whose collection the app shows, over everything as on the iPhone. Opening one clears every stack: their
+        // pages belong to the collection being put away.
+        if (picking) {
+            LibraryPicker(
+                shelfRows,
+                images,
+                backdrop,
+                onOpen = { shelf ->
+                    picking = false
+                    opened = emptyList()
+                    homeOpened = emptyList()
+                    services.library.open(shelf)
+                },
+                onClose = { picking = false },
+            )
+        }
         // Over everything, the tabs and the mini player included. It stays on the last thing played while it goes down
         // after the listening ended.
         val sheetNow = now ?: wiring.lastNow
@@ -686,6 +752,29 @@ private fun queued(collection: com.rpm.player.core.library.Collection, track: Cl
         album?.let { collection.cover(it) },
         album?.let { collection.disc(it) },
     )
+}
+
+/** How long the wait cover stays over the shell at least, and how much longer it waits at most for home's front card:
+ * a photograph is a network request, and a slow one must not hold the app (`homeWaitsAtMost` on iPhone). */
+private const val COVER_FIRST_MS = 400L
+private const val HOME_WAITS_AT_MOST_MS = 2_100L
+
+/**
+ * The wait screen laid over the shell while it is [covering], fading out over 0.35 s when it stops. Its own composable,
+ * so the fade redraws only the cover. The words are shown only over the person's own collection, as on iPhone.
+ */
+@Composable
+private fun WaitCover(covering: Boolean, words: Boolean) {
+    val shown by animateFloatAsState(if (covering) 1f else 0f, tween(if (covering) 150 else 350), label = "wait cover")
+    if (shown <= 0f) return
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = shown }
+            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
+    ) {
+        Waiting(if (words) stringResource(R.string.Rpm_Library_Reading) else null)
+    }
 }
 
 /** The wait screen: a spinning glass record, and what is being waited for. The iPhone's `waiting` view is the same. */

@@ -39,6 +39,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
+import com.rpm.player.phone.design.Backdrop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
@@ -144,8 +148,18 @@ class HomeActions(
  * The page uses the colours of the banner's front card, the one card with a picture. The title stands over the
  * scroll. The banner runs up behind the title and behind the status bar.
  *
- * Not yet implemented: the banner's copy in the page, its rooms and its automatic turning, the lists' framed
- * covers, the collection switcher, and the lock that a library too small for home gets.
+ * The banner turns to its next card every seven seconds while the page is on screen, at its top, and the strip is
+ * still, and it runs round from the last card to the first. A collection with fewer than twenty records shows the
+ * lock instead ([HomeLock]), which says how many more home needs. The key on the title line chooses whose collection
+ * the app shows ([SwitchKey]), when anybody shares one with this account.
+ *
+ * Not yet implemented: the banner's copy in the page and its rooms, and the lists' framed covers.
+ *
+ * @param onScreen whether home is the page showing: the banner turns only then.
+ * @param onSwitch opens the collections picker, or null when there is only the person's own to choose.
+ * @param onAddMusic what the lock's key does: the library's albums.
+ * @param onReady called once the page has drawn what it opens on: the banner's front card with its photograph looked
+ * for, or no banner at all. The launch keeps its wait cover until then.
  */
 @Composable
 fun HomePage(
@@ -155,9 +169,26 @@ fun HomePage(
     images: ImageLoader,
     bottomRoom: Dp,
     actions: HomeActions,
+    backdrop: Backdrop,
+    onScreen: Boolean,
+    onSwitch: (() -> Unit)?,
+    onAddMusic: () -> Unit,
+    onReady: () -> Unit,
 ) {
     val collection = ready.collection
     val home = ready.home
+    // Home needs a row's worth of records before it can say anything (`HomeGate` on iPhone).
+    if (collection.albums.size < HomeShelf.ROW_LENGTH) {
+        Box(Modifier.fillMaxSize()) {
+            ArtGround(null, images)
+            LaunchedEffect(Unit) { onReady() }
+            HomeLock(collection.albums.size, HomeShelf.ROW_LENGTH, backdrop, onAddMusic, Modifier.align(Alignment.Center).padding(bottom = bottomRoom))
+            if (onSwitch != null) {
+                SwitchKey(backdrop, onSwitch, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 4.dp, end = 16.dp))
+            }
+        }
+        return
+    }
     val density = LocalDensity.current
     val banner = remember(home.banner, stations) { HomeShelf.withStation(home.banner, stations.firstOrNull()) }
     val quick = remember(home.quick, stations) { HomeShelf.withStations(home.quick, stations).take(QUICK_PICKS) }
@@ -165,6 +196,8 @@ fun HomePage(
     var heading by remember { mutableStateOf(0.dp) }
     var dress by remember { mutableStateOf<Any?>(null) }
     val scroll = rememberScrollState()
+    // Read once per change of the answer, not on every frame of a scroll.
+    val atTop by remember { derivedStateOf { scroll.value < 1 } }
     // How far the banner reaches up: the title and the status bar. This is known once the title has been measured.
     val overhang = if (banner.isNotEmpty() && heading > 0.dp) heading + statusBar else 0.dp
 
@@ -179,9 +212,11 @@ fun HomePage(
             verticalArrangement = Arrangement.spacedBy(SECTIONS_APART),
         ) {
             if (banner.isNotEmpty()) {
-                Banner(banner, collection, images, logoStamp, overhang, statusBar, onDress = { dress = it }, actions)
+                Banner(banner, collection, images, logoStamp, overhang, statusBar, turns = onScreen && atTop, onDress = { dress = it }, onReady = onReady, actions = actions)
             } else {
                 Spacer(Modifier.height(heading + statusBar))
+                // No banner to wait for.
+                LaunchedEffect(Unit) { onReady() }
             }
             if (quick.isNotEmpty()) PicksRow(stringResource(R.string.Home_QuickPicks), quick, collection, images, logoStamp, actions, SongLine.Artist)
             for ((label, albums) in listOf(
@@ -193,7 +228,12 @@ fun HomePage(
             )) {
                 if (albums.isNotEmpty()) AlbumRow(stringResource(label), albums, collection, images, actions.onOpen)
             }
-            if (home.madeForYou.isNotEmpty()) ListsRow(stringResource(R.string.Home_MadeForYou), home.madeForYou, collection, images, actions.onOpenList)
+            // "Playlists" when the row holds somebody's own playlists (a borrowed collection), "Made for you" when it
+            // holds only generated lists, as the desktop names its row.
+            if (home.madeForYou.isNotEmpty()) {
+                val heading = if (home.madeForYou.any { !it.generated }) R.string.Playlists_Title else R.string.Home_MadeForYou
+                ListsRow(stringResource(heading), home.madeForYou, collection, images, actions.onOpenList)
+            }
         }
         // The title is drawn over the scroll. It does not move with the scroll. It sits on the same line as the title
         // of every other page.
@@ -204,8 +244,20 @@ fun HomePage(
                 .padding(start = 20.dp, end = 16.dp, bottom = 10.dp)
                 .onSizeChanged { heading = with(density) { it.height.toDp() } + 10.dp },
         )
+        // On the title's line, where the library's keys are, 16 from the edge. A layer of its own, because the title
+        // lets taps through to the banner under it and this key must take them.
+        if (onSwitch != null) {
+            SwitchKey(backdrop, onSwitch, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 4.dp, end = 16.dp))
+        }
     }
 }
+
+/** How long after the banner is drawn the other cards' photographs start to be cut: after the front card's own, so the
+ * two do not compete for the network. */
+private const val PRELOAD_AFTER_MS = 2_500L
+
+/** How long a banner card stays in front before the next one turns in (`BannerDwell.seconds` on iPhone). */
+private const val DWELL_MS = 7_000L
 
 // ── the banner ──
 
@@ -221,25 +273,54 @@ private fun Banner(
     logoStamp: String,
     overhang: Dp,
     statusBar: Dp,
+    turns: Boolean,
     onDress: (Any?) -> Unit,
+    onReady: () -> Unit,
     actions: HomeActions,
 ) {
-    val pager = rememberPagerState { cards.size }
+    // A copy of the first card stands after the last, so the strip runs on from the last card to the first. When it comes
+    // to rest on the copy, it is put back on the first card without a movement (`BannerRing` on iPhone).
+    val ring = cards.size > 1
+    val slots = if (ring) cards.size + 1 else cards.size
+    val pager = rememberPagerState { slots }
+    LaunchedEffect(pager, cards.size) {
+        snapshotFlow { pager.settledPage to pager.isScrollInProgress }.collect { (settled, moving) ->
+            if (ring && !moving && settled == cards.size) pager.scrollToPage(0)
+        }
+    }
+    // The turn: seven seconds after the strip last moved, while the page is on screen and at its top. Any change to those
+    // starts the count again.
+    LaunchedEffect(ring, turns, pager.settledPage, pager.isScrollInProgress) {
+        if (!ring || !turns || pager.isScrollInProgress) return@LaunchedEffect
+        delay(DWELL_MS)
+        pager.animateScrollToPage(pager.settledPage + 1)
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             // The photograph is cut for the height the card is drawn at, including the overhang. If it were cut for
             // the plate alone and then stretched to the taller card, a face in the clear area would be pushed up behind
             // the status bar.
             val scene = remember(maxWidth, overhang, statusBar) { bannerScene(maxWidth, overhang, statusBar) }
+            // The other cards' photographs are cut ahead, one at a time, once the front card has had its turn, so a card
+            // that turns in has its photograph already (`HomeBannerView.preload` on iPhone).
+            val portraits = (LocalContext.current.applicationContext as PhoneApplication).portraits
+            LaunchedEffect(cards, scene, overhang > 0.dp) {
+                if (overhang <= 0.dp) return@LaunchedEffect
+                delay(PRELOAD_AFTER_MS)
+                for (card in cards.drop(1)) {
+                    val record = (card as? BannerCard.OfAlbum)?.album?.takeIf { it.artist.isNotBlank() } ?: continue
+                    portraits.portrait(record.artist, record.album, scene)
+                }
+            }
             HorizontalPager(pager, Modifier.fillMaxWidth().height(BANNER + overhang)) { page ->
                 // No cut is made until the heading has been measured, because the overhang it gives changes the frame.
-                BannerCardView(cards[page], live = page == pager.currentPage, collection, images, scene.takeIf { overhang > 0.dp }, logoStamp, onDress, actions)
+                BannerCardView(cards[page % cards.size], live = page == pager.currentPage, collection, images, scene.takeIf { overhang > 0.dp }, logoStamp, onDress, onReady, actions)
             }
         }
         if (cards.size > 1) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
                 for (i in cards.indices) {
-                    Box(Modifier.size(5.dp).clip(CircleShape).background(if (i == pager.currentPage) Color.White else Ink.white(0x44)))
+                    Box(Modifier.size(5.dp).clip(CircleShape).background(if (i == pager.currentPage % cards.size) Color.White else Ink.white(0x44)))
                 }
             }
         }
@@ -279,6 +360,7 @@ private fun BannerCardView(
     scene: ArtScene?,
     logoStamp: String,
     onDress: (Any?) -> Unit,
+    onReady: () -> Unit,
     actions: HomeActions,
 ) {
     val album = (card as? BannerCard.OfAlbum)?.album
@@ -288,12 +370,20 @@ private fun BannerCardView(
     val portraits = (LocalContext.current.applicationContext as PhoneApplication).portraits
     // The artist's square photograph, if its face is clear of the frame. Otherwise the backdrop, cropped around the
     // faces. This is what the iPhone's card asks for (`BackdropStore.portrait`).
+    // Whether the photograph has been looked for, found or not: the front card is drawn once it has (`onReady`).
+    var looked by remember(album?.key, scene) { mutableStateOf(false) }
     val photo by produceState<Bitmap?>(null, album?.key, scene) {
-        val record = album?.takeIf { it.artist.isNotBlank() } ?: return@produceState
+        val record = album?.takeIf { it.artist.isNotBlank() }
+        if (record == null) {
+            looked = true
+            return@produceState
+        }
         value = scene?.let { portraits.portrait(record.artist, record.album, it) }
+        if (scene != null) looked = true
     }
     val wearing = photo ?: cover
     LaunchedEffect(live, wearing) { if (live && wearing != null) onDress(wearing) }
+    LaunchedEffect(live, looked) { if (live && looked) onReady() }
 
     val kicker = when (card) {
         is BannerCard.OfAlbum -> stringResource(kickerOf(card.kicker))
@@ -344,7 +434,7 @@ private fun BannerCardView(
             horizontalArrangement = Arrangement.spacedBy(BANNER_MARGIN),
             verticalAlignment = Alignment.Bottom,
         ) {
-            BannerSleeve(cover, station, logoStamp, images)
+            BannerSleeve(cover, station, list != null, logoStamp, images)
             val shadow = Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 1f), blurRadius = 6f)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 BasicText(kicker, style = display(12f).copy(color = Ink.white(0xCC), letterSpacing = pt(1.5f), shadow = shadow))
@@ -358,7 +448,7 @@ private fun BannerCardView(
 }
 
 @Composable
-private fun BannerSleeve(cover: Any?, station: RadioStation?, logoStamp: String, images: ImageLoader) {
+private fun BannerSleeve(cover: Any?, station: RadioStation?, list: Boolean, logoStamp: String, images: ImageLoader) {
     val shape = RoundedCornerShape(10.dp)
     Box(
         Modifier
@@ -369,7 +459,7 @@ private fun BannerSleeve(cover: Any?, station: RadioStation?, logoStamp: String,
             .border(1.dp, Ink.cardBorder, shape),
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(if (station != null) Glyph.radio else Glyph.record, style = icon(34f).copy(color = Ink.white(0x3A)))
+        BasicText(if (station != null) Glyph.radio else if (list) Glyph.playlists else Glyph.record, style = icon(34f).copy(color = Ink.white(0x3A)))
         val model: Any? = station?.let { StationLogo.of(it, logoStamp) } ?: cover
         if (model != null) {
             AsyncImage(

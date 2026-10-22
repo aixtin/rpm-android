@@ -78,8 +78,9 @@ fun AlbumWall(
     targetStride: Double,
     bottomRoom: Dp,
     onOpen: (CloudAlbum) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier.fillMaxSize()) {
         val (columns, art) = WallLayout.wall(maxWidth.value.toDouble(), targetStride, EDGE, WALL_GUTTER, WALL_COLUMNS)
         val caption = AlbumCaption.of(art)
         val grid = rememberLazyGridState()

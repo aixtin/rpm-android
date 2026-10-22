@@ -75,6 +75,8 @@ import com.rpm.player.phone.design.Backdrop
 import com.rpm.player.phone.design.BlurredPicture
 import com.rpm.player.phone.design.GlassKey
 import com.rpm.player.phone.design.Glyph
+import com.rpm.player.phone.design.PullToRefresh
+import com.rpm.player.phone.design.pinch
 import com.rpm.player.phone.design.Ink
 import com.rpm.player.phone.design.PageHeading
 import com.rpm.player.phone.design.SEARCH_HEIGHT
@@ -101,8 +103,11 @@ private val ARTIST_ORDERS = listOf(
     ArtistOrdering.Added to R.string.ArtistSort_Added,
 )
 
-/** The width that the boxes aim for, the space between them, and the most boxes across (`ArtistsPage` on iPhone). */
-private const val BOX_STRIDE = 190.0
+/**
+ * The space between the boxes, the most boxes across, and the smallest a pinch makes them (`ArtistsPage` on iPhone). The
+ * width they aim for is the person's own, 190 at first ([PhoneSettings.artistBox]).
+ */
+private const val BOX_SMALLEST = 140.0
 private const val BOX_GUTTER = 14.0
 private const val BOX_COLUMNS = 3
 
@@ -115,8 +120,10 @@ private const val BOX_SHAPE = 9f / 16f
  * the artist's first record, blurred. The name is drawn across the box. The header has the search key and the
  * order menu. The search row opens under the header, and it narrows the wall as the name is typed.
  *
- * Not yet implemented: pinch to resize the boxes, pull to refresh, the line that says whose collection a
- * borrowed one is, and the accent tint over a blurred cover.
+ * Two fingers pinch the boxes bigger or smaller, and the size is kept. A pull down from the top reads the collection
+ * again. On a borrowed collection the counts line starts with whose it is.
+ *
+ * Not yet implemented: the accent tint over a blurred cover.
  */
 @Composable
 fun ArtistsPage(
@@ -126,10 +133,12 @@ fun ArtistsPage(
     settings: PhoneSettings,
     bottomRoom: Dp,
     onOpen: (ArtistWallItem) -> Unit,
+    reading: WallReading,
 ) {
     val ground = rememberBackdrop()
     val page = rememberBackdrop()
     val collection = ready.collection
+    var pinching by remember { mutableStateOf<Double?>(null) }
     val order = settings.artistOrder
     var sorting by remember { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
@@ -162,7 +171,7 @@ fun ArtistsPage(
             VinylGround(Modifier.backdropSource(ground))
             Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Box(Modifier.padding(start = 20.dp, end = 16.dp, bottom = 10.dp)) {
-                    PageHeading(stringResource(R.string.Artists_Title), counts(ready.walls.artists.size)) {
+                    PageHeading(stringResource(R.string.Artists_Title), lent(reading.lender, counts(ready.walls.artists.size))) {
                         KeyGroup(ground) {
                             HeaderKey(Glyph.search) { if (searching) closeSearch() else { searching = true; raise = true } }
                             HeaderKey(Glyph.sort) { sorting = true }
@@ -177,10 +186,24 @@ fun ArtistsPage(
                 // view.
                 Box(Modifier.weight(1f).imePadding()) {
                     when {
-                        ready.walls.artists.isEmpty() -> Empty()
+                        ready.walls.artists.isEmpty() -> Empty(reading.lender != null)
                         shown == null -> Unit
                         shown.isEmpty() -> NoMatch()
-                        else -> Boxes(shown, collection, images, artwork, bottomRoom, onOpen)
+                        else -> PullToRefresh(reading.refreshing, reading.onRefresh) {
+                            Boxes(
+                                shown,
+                                collection,
+                                images,
+                                artwork,
+                                bottomRoom,
+                                onOpen,
+                                stride = pinching ?: settings.artistBox,
+                                modifier = Modifier.pinch(
+                                    onZoom = { pinching = pinchedStride(settings.artistBox, it, BOX_SMALLEST) },
+                                    onEnd = { pinching?.let(settings::changeArtistBox); pinching = null },
+                                ),
+                            )
+                        }
                     }
                 }
             }
@@ -238,9 +261,11 @@ private fun Boxes(
     artwork: Artwork,
     bottomRoom: Dp,
     onOpen: (ArtistWallItem) -> Unit,
+    stride: Double,
+    modifier: Modifier,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val (columns, width) = WallLayout.wall(maxWidth.value.toDouble(), BOX_STRIDE, EDGE, BOX_GUTTER, BOX_COLUMNS)
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val (columns, width) = WallLayout.wall(maxWidth.value.toDouble(), stride, EDGE, BOX_GUTTER, BOX_COLUMNS)
         val grid = rememberLazyGridState()
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
@@ -329,11 +354,11 @@ fun artistBackdrop(artist: ArtistWallItem, collection: Collection, artwork: Artw
 
 /** A collection with no artists, which is a collection with no records. */
 @Composable
-private fun Empty() {
+private fun Empty(lent: Boolean) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically), horizontalAlignment = Alignment.CenterHorizontally) {
         MarkView(ArtistMark, Ink.white(0x3A), Modifier.size(46.dp))
         BasicText(
-            stringResource(R.string.Artists_Empty),
+            stringResource(if (lent) R.string.Rpm_Share_EmptyShelf else R.string.Artists_Empty),
             Modifier.widthIn(max = 300.dp),
             style = display(14f).copy(color = Ink.white(0x88), textAlign = TextAlign.Center),
         )

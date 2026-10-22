@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -114,8 +115,12 @@ fun PlaylistsPage(
     onOpenMarked: () -> Unit,
     onOpen: (TrackList) -> Unit,
     onMake: suspend (name: String, folder: List<String>, tracks: List<CloudTrack>) -> String?,
+    onReread: suspend () -> Unit = {},
 ) {
     val ground = rememberBackdrop()
+    // A pull down from the top reads the playlists again (`onReread` on iPhone); the spinner stays while it runs.
+    val pulls = androidx.compose.runtime.rememberCoroutineScope()
+    var rereading by remember { mutableStateOf(false) }
     val page = rememberBackdrop()
     val collection = ready.collection
     val resources = LocalContext.current.resources
@@ -162,12 +167,21 @@ fun PlaylistsPage(
                 }
                 ModeTabs(LibraryMode.Playlists, onMode = onMode, backdrop = ground)
                 // A folder is a new place, and a new place starts at the top.
-                key(browse.at, settings.playlistLayout) {
+                com.rpm.player.phone.design.PullToRefresh(
+                    rereading,
+                    onRefresh = {
+                        rereading = true
+                        pulls.launch { try { onReread() } finally { rereading = false } }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { key(browse.at, settings.playlistLayout) {
                     when (settings.playlistLayout) {
-                        PlaylistLayout.List -> Rows(browse, queue, marked.orEmpty(), pictureOf, images, bottomRoom, ::press) {
-                            Footer(browse, empty = collection.lists.isEmpty(), own = own)
+                        PlaylistLayout.List -> Column(Modifier.fillMaxSize()) {
+                            Rows(browse, queue, marked.orEmpty(), pictureOf, images, bottomRoom, ::press) {
+                                Footer(browse, empty = collection.lists.isEmpty(), own = own)
+                            }
                         }
-                        PlaylistLayout.Grid -> Box(Modifier.weight(1f)) {
+                        PlaylistLayout.Grid -> Box(Modifier.fillMaxSize()) {
                             PlaylistWall(
                                 browse.rows,
                                 titleOf = { title(it) },
@@ -188,7 +202,7 @@ fun PlaylistsPage(
                             ) { Footer(browse, empty = collection.lists.isEmpty(), own = own) }
                         }
                     }
-                }
+                } }
             }
         }
         if (choosingLayout) {

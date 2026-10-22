@@ -36,6 +36,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -101,6 +107,11 @@ enum class LibraryMode(val stored: String, @StringRes val label: Int) {
         fun of(stored: String?): LibraryMode? = entries.firstOrNull { it.stored == stored }
     }
 }
+
+/** The search box's slide: the iPhone's `easeOut(duration: 0.22)`, for its place, its height and its fade. */
+private val SEARCH_SLIDE = tween<IntOffset>(220, easing = EaseOut)
+private val SEARCH_SLIDE_SIZE = tween<IntSize>(220, easing = EaseOut)
+private val SEARCH_FADE = tween<Float>(220, easing = EaseOut)
 
 /** How long typing must pause before the library is searched. The iPhone app uses 140 ms too. */
 private const val SEARCH_PAUSE_MS = 140L
@@ -232,7 +243,13 @@ fun LibraryPage(
                         }
                     }
                 }
-                AnimatedVisibility(searching, enter = slideInVertically { -it } + fadeIn(), exit = slideOutVertically { -it } + fadeOut()) {
+                // It slides out from under the header over 0.22 s, easing out, and the tabs and the wall move down with
+                // it in the same time, as on iPhone (`.move(edge: .top)` with `.opacity` under `easeOut(duration: 0.22)`).
+                AnimatedVisibility(
+                    searching,
+                    enter = expandVertically(SEARCH_SLIDE_SIZE, expandFrom = Alignment.Top) + slideInVertically(SEARCH_SLIDE) { -it } + fadeIn(SEARCH_FADE),
+                    exit = shrinkVertically(SEARCH_SLIDE_SIZE, shrinkTowards = Alignment.Top) + slideOutVertically(SEARCH_SLIDE) { -it } + fadeOut(SEARCH_FADE),
+                ) {
                     SearchRow(asked, { asked = it }, stringResource(R.string.Lookup_SearchButton), focus, raise, onRaised = { raise = false }, ground, onClose = ::closeSearch)
                 }
                 ModeTabs(mode, onMode = settings::changeLibraryMode, backdrop = ground)

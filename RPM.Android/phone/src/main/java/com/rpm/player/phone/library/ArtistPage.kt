@@ -97,6 +97,18 @@ import com.rpm.player.phone.design.backdropSource
 import com.rpm.player.phone.design.display
 import com.rpm.player.phone.design.displayBold
 import com.rpm.player.phone.design.dissolvesAtTop
+import com.rpm.player.phone.design.TopPull
+import com.rpm.player.phone.design.rememberTopPull
+import com.rpm.player.phone.ui.RunOff
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import kotlin.math.roundToInt
+import com.rpm.player.phone.design.OverChrome
 import com.rpm.player.phone.design.icon
 import com.rpm.player.phone.design.kicker
 import com.rpm.player.phone.design.rememberBackdrop
@@ -133,8 +145,12 @@ private const val HELD = 0.2f
  * The title is the artist's logo, where a catalogue has one, cut to its lettering ([Logos]). Otherwise the title
  * is the artist's name.
  *
- * Not yet implemented: the background that the page shows before a photograph arrives, the stretch on an
- * over-pull. A song's long press among the popular songs opens the song menu ([LocalSongMenu]).
+ * The photograph is blurred toward its foot and mirrored under the band, behind the encyclopedia text and the keys
+ * ([RunOff]). Pulled down past its top, the page comes down and the photograph grows about its foot to cover the gap,
+ * while the writing keeps its size ([TopPull], `growsWithPull` on iPhone).
+ *
+ * Not yet implemented: the background that the page shows before a photograph arrives. A song's long press among the
+ * popular songs opens the song menu ([LocalSongMenu]).
  *
  * @param walls the artists wall, which the related acts are picked from.
  * @param onPlay plays the songs from the one at that index: a tap on a song.
@@ -160,6 +176,7 @@ fun ArtistPage(
     BackHandler(onBack = onBack)
     val page = rememberBackdrop()
     val rows = rememberLazyListState()
+    val pull = rememberTopPull()
     val density = LocalDensity.current
     val statusBar = WindowInsets.statusBars.asPaddingValues(density).calculateTopPadding()
     val portraits = (LocalContext.current.applicationContext as PhoneApplication).portraits
@@ -203,15 +220,28 @@ fun ArtistPage(
         val sleeve = (plate.value * 0.38f).coerceIn(120f, 200f).toDouble()
         Box(Modifier.fillMaxSize().backdropSource(page)) {
             ArtGround(photo, images)
-            LazyColumn(state = rows, modifier = Modifier.fillMaxSize().dissolvesAtTop(statusBar + BACK_ROW) { rows.scrolled() }) {
+            LazyColumn(state = rows, modifier = Modifier.fillMaxSize().dissolvesAtTop(statusBar + BACK_ROW) { rows.scrolled() }, overscrollEffect = pull) {
                 item(key = "band") {
-                    Band(title?.takeIf { it.artist == artist.name }, photo, plate, images)
-                    article?.let { AboutText(it, onOpen = { reading = true }, Modifier.padding(horizontal = 20.dp).padding(top = 10.dp)) }
-                    if (shelves.songs.isNotEmpty()) {
-                        Keys(
-                            onPlay = { onPlayAll(shelves.songs.map { it.first }) },
-                            onShuffle = { onPlayAll(shelves.songs.map { it.first }.shuffled()) },
-                        )
+                    // The band's height, read from its layout: the photograph's mirror runs under everything below the
+                    // plate, the text when there is any and the keys, so it is right whether the text is there at once,
+                    // arrives later, or never does.
+                    var tall by remember { mutableIntStateOf(0) }
+                    Box(Modifier.onSizeChanged { tall = it.height }) {
+                        val depth = with(density) { (tall.toDp() - plate).coerceAtLeast(0.dp) }
+                        BandGround(photo, plate, depth, images, pull, Modifier.matchParentSize())
+                        Column {
+                            Band(title?.takeIf { it.artist == artist.name }, plate)
+                            article?.let { AboutText(it, onOpen = { reading = true }, Modifier.padding(horizontal = 20.dp).padding(top = 10.dp)) }
+                            // The space is kept when an artist has no songs and so no keys, as on iPhone.
+                            Box(Modifier.defaultMinSize(minHeight = KEYS_ROW)) {
+                                if (shelves.songs.isNotEmpty()) {
+                                    Keys(
+                                        onPlay = { onPlayAll(shelves.songs.map { it.first }) },
+                                        onShuffle = { onPlayAll(shelves.songs.map { it.first }.shuffled()) },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 if (popular.isNotEmpty()) {
@@ -248,7 +278,8 @@ fun ArtistPage(
             BackKey(page, onBack)
         }
         article?.takeIf { reading }?.let {
-            AboutSheet(stringResource(R.string.TrackInfo_AboutArtist), artist.name, it, page, bottomRoom, onClose = { reading = false })
+            // Over the tab bar and the mini player, as the iPhone's sheet is.
+            OverChrome { AboutSheet(stringResource(R.string.TrackInfo_AboutArtist), artist.name, it, page, bottomRoom, onClose = { reading = false }) }
         }
     }
 }
@@ -280,34 +311,82 @@ private fun rememberPopular(shelves: ArtistShelves, worldPlays: WorldPlays): Lis
 /** How many records' plays are asked for at once. */
 private const val POPULAR_ASKING = 4
 
-/** The photograph, as wide as the page and as tall. It is darker towards the foot, where the name stands. */
+/**
+ * The keys' row and the space round it: 14 above the keys, 50 for them, 10 under (`ArtistPage.keysRow` on iPhone). It is
+ * kept when an artist has no songs, so the band is the same height either way.
+ */
+private val KEYS_ROW = 14.dp + 50.dp + 10.dp
+
+/** Where the photograph's blur starts, as a share of the plate from the top (`ArtistPage.blurFrom` on iPhone). */
+private const val BLUR_FROM = 0.6f
+
+/**
+ * The photograph behind the band, as wide as the page and as tall, darker towards the foot where the name stands, and
+ * blurred toward that foot and mirrored [depth] under it, fading into the page (`ArtistPage.photograph` on iPhone). The
+ * mirror is the photograph as drawn while it stays within the blurred part of the plate, and blurred all the way down
+ * when it is deeper than that (`ArtistPage.reflection`), so the sharp face never shows upside down behind the keys.
+ *
+ * It grows about the plate's foot while the page is pulled down past its top. Only its layer reads the pull.
+ */
 @Composable
-private fun Band(title: Title?, photo: Bitmap?, plate: Dp, images: ImageLoader) {
+private fun BandGround(photo: Bitmap?, plate: Dp, depth: Dp, images: ImageLoader, pull: TopPull, modifier: Modifier) {
+    val density = LocalDensity.current
+    val platePx = with(density) { plate.toPx() }
+    val runOff by produceState<ImageBitmap?>(null, photo, plate, depth) {
+        val picture = photo ?: return@produceState
+        val reflection = if (depth.value <= plate.value * (1 - BLUR_FROM)) RunOff.Reflection.AsDrawn else RunOff.Reflection.Blurred
+        value = withContext(Dispatchers.Default) { RunOff.bake(picture, plate.value, plate.value, depth.value, BLUR_FROM, reflection) }
+    }
+    Box(
+        modifier.graphicsLayer {
+            val grown = 1f + pull.pulled / platePx.coerceAtLeast(1f)
+            scaleX = grown
+            scaleY = grown
+            transformOrigin = TransformOrigin(0.5f, if (size.height > 0f) (platePx / size.height).coerceAtMost(1f) else 1f)
+        },
+    ) {
+        Box(Modifier.fillMaxWidth().height(plate)) {
+            if (photo != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(photo).build(),
+                    contentDescription = null,
+                    imageLoader = images,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = HELD)))
+            } else {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0x22 / 255f)))
+            }
+            // Darker towards the foot, where the name stands. Home's banner does the same.
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.4f to Color.Black.copy(alpha = 0.25f),
+                        0.68f to Color.Black.copy(alpha = 0.7f),
+                        1f to Color.Black.copy(alpha = 0.7f),
+                    ),
+                ),
+            )
+        }
+        // The blur toward the foot and the mirror under it, baked once per photograph and depth, at the page's width.
+        runOff?.let { baked ->
+            Box(
+                Modifier.matchParentSize().drawBehind {
+                    val scale = size.width / baked.width
+                    drawImage(baked, dstSize = IntSize(size.width.roundToInt(), (baked.height * scale).roundToInt()))
+                },
+            )
+        }
+    }
+}
+
+/** The band's writing: the title, centred on the photograph's foot. The photograph is drawn behind it ([BandGround]). */
+@Composable
+private fun Band(title: Title?, plate: Dp) {
     val density = LocalDensity.current
     Box(Modifier.fillMaxWidth().height(plate)) {
-        if (photo != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(photo).build(),
-                contentDescription = null,
-                imageLoader = images,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = HELD)))
-        } else {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0x22 / 255f)))
-        }
-        // Darker towards the foot, where the name stands. Home's banner does the same.
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    0.4f to Color.Black.copy(alpha = 0.25f),
-                    0.68f to Color.Black.copy(alpha = 0.7f),
-                    1f to Color.Black.copy(alpha = 0.7f),
-                ),
-            ),
-        )
         val shadow = with(density) { Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 1.dp.toPx()), blurRadius = 6.dp.toPx()) }
         when (title) {
             is Title.Logo -> {

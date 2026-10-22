@@ -92,6 +92,8 @@ import com.rpm.player.phone.design.scrolled
 import com.rpm.player.phone.ui.ArtistMark
 import com.rpm.player.phone.ui.MarkView
 import com.rpm.player.phone.ui.VinylGround
+import com.rpm.player.phone.ui.color
+import com.rpm.player.phone.ui.rememberAccent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -310,7 +312,14 @@ internal fun ArtistBox(artist: ArtistWallItem, width: Dp, collection: Collection
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            sleeve != null -> BlurredPicture(sleeve, images, sigma = 24.dp, modifier = Modifier.fillMaxSize())
+            sleeve != null -> {
+                BlurredPicture(sleeve, images, sigma = 24.dp, modifier = Modifier.fillMaxSize())
+                // The sleeve's accent over it at a little over a fifth, as on iPhone (`sleeve.accent` at 0.22), so a box
+                // with no photograph has the colour of the artist's own music. Read only while there is no photograph.
+                rememberAccent(sleeve, images)?.let { accent ->
+                    Box(Modifier.fillMaxSize().background(accent.color().copy(alpha = 0.22f)))
+                }
+            }
         }
         // The shade gets darker towards the bottom of the box. The name is across the middle.
         Box(

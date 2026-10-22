@@ -54,6 +54,7 @@ import com.rpm.player.phone.design.backdropSource
 import com.rpm.player.phone.design.display
 import com.rpm.player.phone.design.displayBold
 import com.rpm.player.phone.design.dissolvesAtTop
+import com.rpm.player.phone.design.OverChrome
 import com.rpm.player.phone.design.icon
 import com.rpm.player.phone.design.iconOutline
 import com.rpm.player.phone.design.kicker
@@ -222,10 +223,11 @@ fun AlbumPage(
         Box(Modifier.padding(top = top - BACK_ROW).height(BACK_ROW).padding(start = 20.dp), contentAlignment = Alignment.Center) {
             BackKey(page, onBack)
         }
+        // Both sheets cover the tab bar and the mini player, as the iPhone's do.
         article?.takeIf { reading }?.let {
-            AboutSheet(stringResource(R.string.TrackInfo_AboutAlbum), album.album, it, page, bottomRoom, onClose = { reading = false })
+            OverChrome { AboutSheet(stringResource(R.string.TrackInfo_AboutAlbum), album.album, it, page, bottomRoom, onClose = { reading = false }) }
         }
-        if (writing && wall != null) {
+        if (writing && wall != null) OverChrome {
             WriteReviewSheet(
                 album.album,
                 wall.myStars,

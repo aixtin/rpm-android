@@ -65,6 +65,7 @@ import com.rpm.player.phone.design.PageHeading
 import com.rpm.player.phone.design.backdropSource
 import com.rpm.player.phone.design.display
 import com.rpm.player.phone.design.dissolvesAtTop
+import com.rpm.player.phone.design.OverChrome
 import com.rpm.player.phone.design.icon
 import com.rpm.player.phone.design.rememberBackdrop
 import com.rpm.player.phone.design.scrolled
@@ -214,6 +215,8 @@ fun PlaylistsPage(
                 onClose = { choosingLayout = false },
             )
         }
+        // Over the tab bar and the mini player, as the iPhone's sheet is.
+        OverChrome {
         AnimatedVisibility(making != null, enter = fadeIn(tween(180)), exit = fadeOut(tween(180))) {
             // Held while the panel fades out, after [making] has been cleared.
             val folder = remember { making.orEmpty() }
@@ -226,6 +229,7 @@ fun PlaylistsPage(
                 commit = { name, tracks -> onMake(name, folder, tracks) },
                 onClose = { making = null },
             )
+        }
         }
     }
 }

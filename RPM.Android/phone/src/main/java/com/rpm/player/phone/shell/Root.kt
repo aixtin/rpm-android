@@ -71,6 +71,9 @@ import com.rpm.player.core.playback.start
 import com.rpm.player.core.library.Filed
 import com.rpm.player.phone.design.ActionSheet
 import com.rpm.player.phone.design.Backdrop
+import com.rpm.player.phone.design.LocalOverChrome
+import com.rpm.player.phone.design.OverChromeHost
+import com.rpm.player.phone.design.OverChromeLayer
 import com.rpm.player.phone.design.DialogKey
 import com.rpm.player.phone.design.KeyRole
 import com.rpm.player.phone.library.LocalSongMenu
@@ -497,7 +500,9 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
         wasOnline = online
     }
 
-    CompositionLocalProvider(LocalPlayable provides downloads.playable) {
+    // The pages' sheets are drawn over the chrome (`OverChrome`), as the iPhone's cover the tab bar and the mini player.
+    val overChrome = remember { OverChromeHost() }
+    CompositionLocalProvider(LocalPlayable provides downloads.playable, LocalOverChrome provides overChrome) {
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().backdropSource(backdrop)) {
           CompositionLocalProvider(LocalSongMenu provides songMenu) {
@@ -597,6 +602,7 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                 .align(Alignment.BottomCenter)
                 .onSizeChanged { chrome = with(density) { it.height.toDp() } },
         )
+        OverChromeLayer(overChrome)
         // The wait cover stays over the first frames, then until home has drawn what it opens on, so the app shows a
         // finished page and not one filling in. Taps are held back while it is up.
         WaitCover(covering, words = collection.shelf == Shelf.Own)

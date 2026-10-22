@@ -77,6 +77,7 @@ import com.rpm.player.phone.design.backdropSource
 import com.rpm.player.phone.design.display
 import com.rpm.player.phone.design.displayBold
 import com.rpm.player.phone.design.dissolvesAtTop
+import com.rpm.player.phone.design.OverChrome
 import com.rpm.player.phone.design.icon
 import com.rpm.player.phone.design.pt
 import com.rpm.player.phone.design.rememberBackdrop
@@ -230,6 +231,8 @@ fun PlaylistPage(
         Box(Modifier.padding(top = top - BACK_ROW).height(BACK_ROW).padding(start = 20.dp), contentAlignment = Alignment.Center) {
             BackKey(page, onBack = { if (rearranging) asked = false else onBack() })
         }
+        // Over the tab bar and the mini player, as the iPhone's sheet is.
+        OverChrome {
         AnimatedVisibility(picking && adding != null, enter = fadeIn(tween(180)), exit = fadeOut(tween(180))) {
             val into = adding ?: return@AnimatedVisibility
             NewPlaylistSheet(
@@ -241,6 +244,7 @@ fun PlaylistPage(
                 commit = { _, songs -> into.onAdd(songs) },
                 onClose = { picking = false },
             )
+        }
         }
     }
 }

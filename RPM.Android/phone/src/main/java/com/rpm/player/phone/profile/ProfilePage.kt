@@ -71,6 +71,7 @@ import com.rpm.player.core.cloud.CloudQuota
 import com.rpm.player.core.playback.AudioLadder
 import com.rpm.player.core.playback.LevelMode
 import com.rpm.player.phone.design.Backdrop
+import com.rpm.player.phone.design.OverChrome
 import com.rpm.player.phone.design.GlassButton
 import com.rpm.player.phone.design.GlassCard
 import com.rpm.player.phone.design.Glyph
@@ -193,8 +194,11 @@ fun ProfilePage(
             }
         }
         menu?.let { ask -> Menu(page, ask, bottomRoom, onClose = { menu = null }) }
-        AnimatedVisibility(deletingAccount, enter = fadeIn(tween(180)), exit = fadeOut(tween(180))) {
-            DeleteAccountSheet(email, page, bottomRoom, commit = onDeleteAccount, onClose = { deletingAccount = false })
+        // Over the tab bar and the mini player, as the iPhone's sheet is.
+        OverChrome {
+            AnimatedVisibility(deletingAccount, enter = fadeIn(tween(180)), exit = fadeOut(tween(180))) {
+                DeleteAccountSheet(email, page, bottomRoom, commit = onDeleteAccount, onClose = { deletingAccount = false })
+            }
         }
     }
     if (credits) AboutPage(version, onClose = { credits = false })

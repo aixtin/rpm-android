@@ -88,7 +88,6 @@ import com.rpm.player.phone.library.PlaylistSleeve
 import com.rpm.player.phone.library.ListRoom
 import com.rpm.player.core.library.listName
 import com.rpm.player.core.radio.RadioStation
-import com.rpm.player.core.radio.StationLogo
 import com.rpm.player.phone.design.BlurredPicture
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.Ink
@@ -105,6 +104,26 @@ import com.rpm.player.phone.library.AlbumCaption
 import com.rpm.player.phone.library.AlbumTile
 import com.rpm.player.phone.library.FOOT
 import com.rpm.player.phone.ui.ArtGround
+import com.rpm.player.phone.ui.RunOff
+import com.rpm.player.phone.ui.rememberAccent
+import com.rpm.player.phone.radio.StationFace
+import com.rpm.player.phone.design.TopPull
+import com.rpm.player.phone.design.growsWithPull
+import com.rpm.player.phone.design.rememberTopPull
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.floor
+import kotlin.math.roundToInt
 
 /**
  * The height of the banner's plate, before it reaches up behind the title and the status bar (`HomeBannerMetrics` on
@@ -116,6 +135,16 @@ private val BANNER_MARGIN = 22.dp
 
 /** The cover size in a row (`HomeRowView.art` on iPhone). */
 private const val ROW_ART = 132.0
+
+/**
+ * How deep the banner's reflection runs under the card (`HomeBannerMetrics.reflection` on iPhone): past the dots, the
+ * gap to the first row, its heading and its covers, and a little more, so the picture fades into the page and does not
+ * stop at an edge. It is the same whatever stands under the card, the quick selection included.
+ */
+private fun bannerMirror(cards: Int): Dp = ((if (cards > 1) 10 + 5 else 0) + 26 + (23 + 10) + ROW_ART + 18).dp
+
+/** Where a card's blur starts, as a share of its height: the face is cut into the upper half (`HomeFeatureCard.blurFrom`). */
+private const val BANNER_BLUR_FROM = 0.6f
 
 /**
  * The quick selection: sixteen picks, four lines to a panel, with the edge of the next panel showing (`QuickPicks` on
@@ -203,23 +232,28 @@ fun HomePage(
     var heading by remember { mutableStateOf(0.dp) }
     var dress by remember { mutableStateOf<Any?>(null) }
     val scroll = rememberScrollState()
+    // The iPhone's band at the top: pulled past its top, the page comes down and the banner grows to cover the gap.
+    val pull = rememberTopPull()
     // Read once per change of the answer, not on every frame of a scroll.
     val atTop by remember { derivedStateOf { scroll.value < 1 } }
     // How far the banner reaches up: the title and the status bar. This is known once the title has been measured.
     val overhang = if (banner.isNotEmpty() && heading > 0.dp) heading + statusBar else 0.dp
 
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().backdropSource(backdrop)) { ArtGround(dress, images) }
+        // A cover's accent tints the ground, as on iPhone (`BannerDress.accent`). A photograph gives none: its colour is
+        // the photograph's own.
+        val accent = rememberAccent(dress?.takeIf { it !is Bitmap }, images)
+        Box(Modifier.fillMaxSize().backdropSource(backdrop)) { ArtGround(dress, images, accent) }
         Column(
             Modifier
                 .fillMaxSize()
                 .dissolvesAtTop(statusBar + heading) { scroll.value.toFloat() }
-                .verticalScroll(scroll)
+                .verticalScroll(scroll, overscrollEffect = pull)
                 .padding(bottom = FOOT + bottomRoom),
             verticalArrangement = Arrangement.spacedBy(SECTIONS_APART),
         ) {
             if (banner.isNotEmpty()) {
-                Banner(banner, collection, images, logoStamp, overhang, statusBar, turns = onScreen && atTop, onDress = { dress = it }, onReady = onReady, actions = actions)
+                Banner(banner, collection, images, logoStamp, overhang, statusBar, turns = onScreen && atTop, pull, onDress = { dress = it }, onReady = onReady, actions = actions)
             } else {
                 Spacer(Modifier.height(heading + statusBar))
                 // No banner to wait for.
@@ -281,6 +315,7 @@ private fun Banner(
     overhang: Dp,
     statusBar: Dp,
     turns: Boolean,
+    pull: TopPull,
     onDress: (Any?) -> Unit,
     onReady: () -> Unit,
     actions: HomeActions,
@@ -325,10 +360,32 @@ private fun Banner(
                     portraits.portrait(record.artist, record.album, scene)
                 }
             }
-            HorizontalPager(pager, Modifier.fillMaxWidth().height(BANNER + overhang)) { page ->
+            val plate = BANNER + overhang
+            val mirror = bannerMirror(cards.size)
+            val platePx = with(LocalDensity.current) { plate.toPx() }
+            // Each card's photograph as baked for its run-off and reflection ([RunOff]), by card. The strip draws the
+            // reflections from here, under the dots and the rows.
+            val runOffs = remember(cards) { mutableStateMapOf<Int, ImageBitmap>() }
+            // Scaled up about the card's foot while the page is pulled down past its top, so the picture zooms and the
+            // page's ground does not show above it (`growsWithPull` on iPhone). The whole strip is scaled, because a
+            // pager clips its pages to itself; the writing is scaled back (`keepsSize`), so only the picture grows.
+            HorizontalPager(pager, Modifier.fillMaxWidth().height(plate).growsWithPull(pull, platePx, TransformOrigin(0.5f, 1f))) { page ->
+                val card = page % cards.size
                 // No cut is made until the heading has been measured, because the overhang it gives changes the frame.
-                BannerCardView(cards[page % cards.size], live = page == pager.currentPage, collection, images, scene.takeIf { overhang > 0.dp }, logoStamp, onDress, onReady, actions)
+                BannerCardView(
+                    cards[card], live = page == pager.currentPage, collection, images, scene.takeIf { overhang > 0.dp }, logoStamp,
+                    width = maxWidth, plate = plate, mirror = mirror,
+                    keepsSize = Modifier.graphicsLayer {
+                        val grown = 1f + pull.pulled / platePx.coerceAtLeast(1f)
+                        scaleX = 1f / grown
+                        scaleY = 1f / grown
+                        transformOrigin = TransformOrigin(0.5f, 1f)
+                    },
+                    onRunOff = { baked -> if (baked != null) runOffs[card] = baked else runOffs.remove(card) },
+                    onDress = onDress, onReady = onReady, actions = actions,
+                )
             }
+            BannerReflections(pager, cards.size, runOffs, plate, mirror, pull, platePx)
         }
         if (cards.size > 1) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
@@ -372,6 +429,11 @@ private fun BannerCardView(
     images: ImageLoader,
     scene: ArtScene?,
     logoStamp: String,
+    width: Dp,
+    plate: Dp,
+    mirror: Dp,
+    keepsSize: Modifier,
+    onRunOff: (ImageBitmap?) -> Unit,
     onDress: (Any?) -> Unit,
     onReady: () -> Unit,
     actions: HomeActions,
@@ -395,6 +457,14 @@ private fun BannerCardView(
         if (scene != null) looked = true
     }
     val wearing = photo ?: cover
+    // The photograph blurred toward the card's foot and mirrored under it, baked once per photograph and size.
+    val runOff by produceState<ImageBitmap?>(null, photo, width, plate, mirror) {
+        val picture = photo ?: return@produceState
+        value = withContext(Dispatchers.Default) {
+            RunOff.bake(picture, width.value, plate.value, mirror.value, BANNER_BLUR_FROM, RunOff.Reflection.Blurred)
+        }
+    }
+    LaunchedEffect(runOff) { onRunOff(runOff) }
     LaunchedEffect(live, wearing) { if (live && wearing != null) onDress(wearing) }
     LaunchedEffect(live, looked) { if (live && looked) onReady() }
 
@@ -431,7 +501,7 @@ private fun BannerCardView(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.2f)))
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = RunOff.HELD)))
             }
             cover != null -> BlurredPicture(cover, images, sigma = 40.dp, modifier = Modifier.fillMaxSize())
         }
@@ -446,6 +516,17 @@ private fun BannerCardView(
                 ),
             ),
         )
+        // The blur toward the foot, over the sharp photograph: the plate's part of the baked run-off.
+        runOff?.let { baked ->
+            Box(
+                Modifier.fillMaxSize().drawBehind {
+                    val rows = (plate.value * RunOff.SCALE).roundToInt().coerceAtMost(baked.height)
+                    drawImage(baked, srcSize = IntSize(baked.width, rows), dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()))
+                },
+            )
+        }
+        // The writing keeps its size while the picture grows with a pull, as on iPhone.
+        Box(Modifier.matchParentSize().then(keepsSize)) {
         Row(
             Modifier.align(Alignment.BottomStart).padding(BANNER_MARGIN),
             horizontalArrangement = Arrangement.spacedBy(BANNER_MARGIN),
@@ -461,7 +542,63 @@ private fun BannerCardView(
                 }
             }
         }
+        }
     }
+}
+
+/**
+ * The reflections under the banner's cards, drawn by the strip and not by the cards: a pager clips each page to
+ * itself, and a reflection runs down past the card behind the dots and the first rows. Each card's own reflection
+ * moves with the card under the finger, as on iPhone, where every card casts its own. It is the mirror part of the
+ * card's baked [RunOff], so it matches the card row for row where they meet.
+ *
+ * It takes no room: it is laid out with no height at the card's foot, and drawn [mirror] deep under it. It grows with a
+ * pull about the card's foot, as the card above it does. Only the draw reads the strip's position and the pull.
+ */
+@Composable
+private fun BannerReflections(
+    pager: PagerState,
+    cards: Int,
+    runOffs: Map<Int, ImageBitmap>,
+    plate: Dp,
+    mirror: Dp,
+    pull: TopPull,
+    platePx: Float,
+) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .layout { measurable, constraints ->
+                val deep = mirror.roundToPx()
+                val placeable = measurable.measure(Constraints.fixed(constraints.maxWidth, deep))
+                layout(constraints.maxWidth, 0) {
+                    placeable.placeWithLayer(0, plate.roundToPx()) {
+                        val grown = 1f + pull.pulled / platePx.coerceAtLeast(1f)
+                        scaleX = grown
+                        scaleY = grown
+                        transformOrigin = TransformOrigin(0.5f, 0f)
+                    }
+                }
+            }
+            .drawBehind {
+                if (cards == 0) return@drawBehind
+                val at = pager.currentPage + pager.currentPageOffsetFraction
+                val first = floor(at).toInt()
+                for (page in first..first + 1) {
+                    val baked = runOffs[page.mod(cards)] ?: continue
+                    val from = (plate.value * RunOff.SCALE).roundToInt().coerceAtMost(baked.height)
+                    if (baked.height - from <= 0) continue
+                    val x = ((page - at) * size.width).roundToInt()
+                    drawImage(
+                        baked,
+                        srcOffset = IntOffset(0, from),
+                        srcSize = IntSize(baked.width, baked.height - from),
+                        dstOffset = IntOffset(x, 0),
+                        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                    )
+                }
+            },
+    )
 }
 
 @Composable
@@ -482,17 +619,23 @@ private fun BannerSleeve(cover: Any?, station: RadioStation?, list: Boolean, fra
             .border(1.dp, Ink.cardBorder, shape),
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(if (station != null) Glyph.radio else if (list) Glyph.playlists else Glyph.record, style = icon(34f).copy(color = Ink.white(0x3A)))
-        val model: Any? = station?.let { StationLogo.of(it, logoStamp) } ?: cover
-        if (model != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(model).build(),
-                contentDescription = null,
-                imageLoader = images,
-                contentScale = if (station != null) ContentScale.Fit else ContentScale.Crop,
-                alignment = Alignment.TopCenter,
-                modifier = if (station != null) Modifier.fillMaxSize().padding(14.dp) else Modifier.fillMaxSize(),
-            )
+        if (station != null) {
+            // The station's own logo on its made ground, as on the radio tab and the player (`StationFace` on iPhone).
+            StationFace(station, logoStamp, images, BANNER_SLEEVE, inset = 14.dp, Modifier.fillMaxSize()) {
+                BasicText(Glyph.radio, style = icon(34f).copy(color = Ink.white(0x3A)))
+            }
+        } else {
+            BasicText(if (list) Glyph.playlists else Glyph.record, style = icon(34f).copy(color = Ink.white(0x3A)))
+            if (cover != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(cover).build(),
+                    contentDescription = null,
+                    imageLoader = images,
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }
@@ -566,7 +709,7 @@ private fun QuickLine(pick: QuickPick, collection: Collection, images: ImageLoad
         else -> null
     }
     val picture: Any? = when (pick) {
-        is QuickPick.OfStation -> StationLogo.of(pick.station, logoStamp)
+        is QuickPick.OfStation -> null
         is QuickPick.OfList -> collection.cover(pick.list)
         else -> album?.let { collection.cover(it) }
     }
@@ -614,6 +757,12 @@ private fun QuickLine(pick: QuickPick, collection: Collection, images: ImageLoad
         // A generated list's line wears the list's frame, as its square does everywhere else.
         val framed = (pick as? QuickPick.OfList)?.let { FramedList.of(it.list, title) }
         if (framed != null) PlaylistSleeve(picture, Glyph.playlists, QUICK_ART, corner = 5.dp, mark = 15f, images, framed)
+        // A station's logo on its made ground, in the cover's square (`HomePicksRow.stationSquare` on iPhone).
+        else if (pick is QuickPick.OfStation) Box(Modifier.size(QUICK_ART).clip(shape).background(Color.Black.copy(alpha = 0x22 / 255f))) {
+            StationFace(pick.station, logoStamp, images, QUICK_ART, inset = 4.dp, Modifier.fillMaxSize()) {
+                BasicText(Glyph.radio, style = icon(15f).copy(color = Ink.white(0x3A)))
+            }
+        }
         else Box(Modifier.size(QUICK_ART).clip(shape).background(Color.Black.copy(alpha = 0x22 / 255f)), contentAlignment = Alignment.Center) {
             BasicText(glyph, style = icon(15f).copy(color = Ink.white(0x3A)))
             if (picture != null) {

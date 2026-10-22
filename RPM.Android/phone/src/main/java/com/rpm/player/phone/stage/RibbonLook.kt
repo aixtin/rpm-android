@@ -1,25 +1,29 @@
 package com.rpm.player.phone.stage
 
 import android.opengl.GLES30
-import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
- * The ribbon sea: fifteen contour lines of one rolling surface, seen nearly edge-on through a perspective camera, with
- * wrinkles born at the left from the music of the instant that travel right along each line like a wave sent down a
- * rope. The iPhone's `RibbonSea` (RPMStages/RibbonSea.swift), figure for figure: the desktop's vertex shader, moved
- * off the GPU.
+ * The ribbon sea's reading: fifteen contour lines of one rolling surface, with wrinkles born at the left from the music
+ * of the instant that travel right along each line like a wave sent down a rope. The listening half of the iPhone's
+ * `RibbonSea` (RPMStages/RibbonSea.swift), figure for figure: the smoothed spectrum, the swell and the band history.
+ *
+ * The other half, the projection, is the desktop's vertex shader, which the iPhone moved onto the CPU because SwiftUI
+ * has no vertex stage. Here it is back in a vertex shader ([RibbonLook]), with the iPhone's arithmetic line for line:
+ * on this phone the CPU took 20 ms a frame to trace and stroke the lines.
  */
 class RibbonSea(frameSize: Int = 2048) {
     private val audio = ShaderAudio(frameSize)
     private val spec = FloatArray(ShaderAudio.WIDTH)
-    private val history = FloatArray(HISTORY_BANDS * HISTORY_COLUMNS)
     private var swellHold = 0.0
+
+    /**
+     * The scrolling record of recent band energy: columns are time with now at column 0, rows are frequency from bass
+     * at row 0. A point at u reads column u, so a crest born at the left flows right over the length of the history.
+     */
+    val history = FloatArray(HISTORY_BANDS * HISTORY_COLUMNS)
 
     /** How high the whole swell is, 0 at rest: a fast attack, a short hold and a slow settle, like an ocean. */
     var swell = 0f
@@ -60,126 +64,71 @@ class RibbonSea(frameSize: Int = 2048) {
         }
     }
 
-    /**
-     * Projects every line into normalised device coordinates (y up) for a frame whose height over width is [aspect],
-     * x then y per point, line by line.
-     */
-    fun trace(time: Double, aspect: Float, into: FloatArray) {
-        val t = time.toFloat()
-        val breath = 0.60f + 0.25f * sin(t * 0.42f) + 0.15f * sin(t * 0.27f + 1.3f)
-        val seaTime = t * 0.2f + 0.18f * sin(t * 0.33f)
-        val amplitude = 0.16f * breath + swell * 1.25f
-
-        val focal = 2.6f
-        val pitch = 20f * PI.toFloat() / 180f
-        val cp = cos(pitch)
-        val sp = sin(pitch)
-        val dist = 3.2f
-        val camY = dist * sp
-        val camZ = -dist * cp
-        // A wider window is given a longer stretch of sea, not a stretched one.
-        val reach = max(1f, 0.62f / max(aspect, 0.01f))
-
-        var k = 0
-        for (line in 0 until LINES) {
-            val v = line.toFloat() / (LINES - 1)
-            val wz = (v - 0.5f) * 2.2f
-            val span = (3.0f + v * 3.4f) * reach
-            val fcoord = 1 - v
-            val ramp = 0.06f + (0.15f - 0.06f) * v
-            for (c in 0 until COLUMNS) {
-                val u = c.toFloat() / (COLUMNS - 1)
-                val wx = (u - 0.5f) * span
-                var wy = sea(wx, wz, seaTime) * amplitude
-                val born = read(u, fcoord)
-                val carrier = sin(wx * 13.0f + wz * 1.6f - t * 6.0f) + sin(wx * 20.0f + wz * 2.4f - t * 8.4f) * 0.5f
-                wy += carrier * (0.003f + born * ramp)
-
-                val dy = wy - camY
-                val dz = wz - camZ
-                val cy = dy * cp + dz * sp
-                var cz = -dy * sp + dz * cp
-                if (cz < 0.05f) cz = 0.05f
-                into[k++] = wx * focal / cz * aspect
-                into[k++] = cy * focal / cz
-            }
-        }
-    }
-
-    /** How bright a line is drawn: the front ones lead, and everything lifts when the music does. */
-    fun brightness(line: Int): Float {
-        val v = line.coerceIn(0, LINES - 1).toFloat() / (LINES - 1)
-        return (0.45f + 0.55f * (1 - v)) * (0.8f + 0.5f * swell)
-    }
-
-    /** Reads the band history as the shader sampled its texture: normalised, linearly filtered, clamped. */
-    private fun read(u: Float, band: Float): Float {
-        val fx = u.coerceIn(0f, 1f) * (HISTORY_COLUMNS - 1)
-        val fy = band.coerceIn(0f, 1f) * (HISTORY_BANDS - 1)
-        val x0 = fx.toInt()
-        val y0 = fy.toInt()
-        val x1 = min(x0 + 1, HISTORY_COLUMNS - 1)
-        val y1 = min(y0 + 1, HISTORY_BANDS - 1)
-        val tx = fx - x0
-        val ty = fy - y0
-        val a = history[y0 * HISTORY_COLUMNS + x0]
-        val b = history[y0 * HISTORY_COLUMNS + x1]
-        val c = history[y1 * HISTORY_COLUMNS + x0]
-        val d = history[y1 * HISTORY_COLUMNS + x1]
-        return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty
-    }
-
     companion object {
+        /** Contour lines, low band at the front. */
         const val LINES = 15
+
+        /** Points along each line. */
         const val COLUMNS = 150
-        private const val HISTORY_COLUMNS = 100
-        private const val HISTORY_BANDS = 16
 
-        /** An open sea: three long directional rollers, so a line carries a couple of flowing curves. */
-        private fun sea(x: Float, z: Float, t: Float): Float =
-            0.50f * sin(along(1.00f, 0.30f, x, z) * 1.1f - t * 0.55f) +
-                0.28f * sin(along(0.60f, -0.80f, x, z) * 1.9f - t * 0.85f) +
-                0.16f * sin(along(-0.35f, 1.00f, x, z) * 3.2f - t * 1.15f)
-
-        private fun along(dx: Float, dz: Float, x: Float, z: Float): Float {
-            val len = sqrt(dx * dx + dz * dz)
-            return (dx / len) * x + (dz / len) * z
-        }
+        const val HISTORY_COLUMNS = 100
+        const val HISTORY_BANDS = 16
     }
 }
 
 /**
- * The ribbon sea, drawn: the iPhone's `RibbonView`. Three passes over each centreline, widest first, added together
- * and not painted over, so where lines cross they sum into a bloom, as the desktop's halo term does. Each pass is a
- * strip along the line whose two edges are pulled in to the centre at the ends, so a line tapers away.
+ * The ribbon sea, drawn: the iPhone's `RibbonView`. Three passes over each centreline, widest first, added together and
+ * not painted over, so where lines cross they sum into a bloom, as the desktop's halo term does. Each pass is a strip
+ * whose two edges are pulled in to the centre at the ends, so a line tapers away.
+ *
+ * The strips never change shape on the CPU: one buffer holds, for every point, its column, its line and which edge it
+ * is, and the vertex shader places it on the sea. Each frame sends the clock, the swell and the band history.
  */
 class RibbonLook : StageRenderer {
-    /** Two thirds: the lines are thin, and their filament needs pixels to stay a filament. */
-    override val scale = 0.67f
+    /**
+     * Half: every line is three wide strips added over each other, and at two thirds the Titan's GPU held the sea to
+     * about 35 frames a second.
+     */
+    override val scale = 0.5f
 
     private val sea = RibbonSea()
-    private val points = FloatArray(RibbonSea.LINES * RibbonSea.COLUMNS * 2)
-
-    /** Every pass of every line as one strip each, side by side in one buffer, sent to the GPU once a frame. */
-    private val strips = FloatArray(STRIP * RibbonSea.LINES * PASSES.size)
-    private val upload = floats(strips.size)
+    private val bytes = bytes(RibbonSea.HISTORY_BANDS * RibbonSea.HISTORY_COLUMNS)
     private var drawing = 0
     private var vertices = 0
-    private var buffer = 0
-    private var inkAt = 0
+    private var history = 0
+    private val at = HashMap<String, Int>()
 
     override fun created() {
         drawing = program(VERTEX, FRAGMENT)
-        inkAt = GLES30.glGetUniformLocation(drawing, "ink")
+        at.clear()
+        history = byteTexture(RibbonSea.HISTORY_COLUMNS, RibbonSea.HISTORY_BANDS)
+        // Every line as one strip: two corners a column, each its column, its line and its edge (+1 above, -1 below).
+        val corners = FloatArray(RibbonSea.LINES * RibbonSea.COLUMNS * 2 * 3)
+        var k = 0
+        for (line in 0 until RibbonSea.LINES) {
+            for (c in 0 until RibbonSea.COLUMNS) {
+                for (side in floatArrayOf(1f, -1f)) {
+                    corners[k++] = c.toFloat()
+                    corners[k++] = line.toFloat()
+                    corners[k++] = side
+                }
+            }
+        }
+        val upload = floats(corners.size).apply {
+            put(corners)
+            flip()
+        }
         vertices = IntArray(1).also { GLES30.glGenVertexArrays(1, it, 0) }[0]
-        buffer = arrayBuffer()
+        val buffer = arrayBuffer()
         GLES30.glBindVertexArray(vertices)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffer)
-        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, strips.size * 4, null, GLES30.GL_DYNAMIC_DRAW)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, corners.size * 4, upload, GLES30.GL_STATIC_DRAW)
         GLES30.glEnableVertexAttribArray(0)
-        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+        GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, 0, 0)
         GLES30.glBindVertexArray(0)
     }
+
+    private fun uniform(name: String): Int = at.getOrPut(name) { GLES30.glGetUniformLocation(drawing, name) }
 
     override fun hear(frame: FloatArray, count: Int, now: Double, since: Double) {
         sea.listen(frame, count, now)
@@ -188,45 +137,37 @@ class RibbonLook : StageRenderer {
     override fun draw(width: Int, height: Int, now: Double, since: Double) {
         GLES30.glClearColor(0f, 0f, 0f, 1f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-        sea.trace(now, height.toFloat() / width, points)
+        uploadBytes(history, RibbonSea.HISTORY_COLUMNS, RibbonSea.HISTORY_BANDS, sea.history, bytes)
 
-        // The ribbon's half-width is 0.024 of the half-height; in device units that is 0.048 of the height.
-        val half = HALF_WIDTH * 2f
-        var k = 0
-        for (line in 0 until RibbonSea.LINES) {
-            val from = line * RibbonSea.COLUMNS * 2
-            for (pass in PASSES) {
-                val w = half * pass.width
-                for (c in 0 until RibbonSea.COLUMNS) {
-                    val x = points[from + c * 2]
-                    val y = points[from + c * 2 + 1]
-                    val edge = w * FADE[c]
-                    strips[k++] = x
-                    strips[k++] = y + edge
-                    strips[k++] = x
-                    strips[k++] = y - edge
-                }
-            }
-        }
-        upload.clear()
-        upload.put(strips)
-        upload.flip()
+        // Breathing: the resting amplitude swells and relaxes on two slow sines with unrelated periods, and the roll's
+        // own pace varies with a third, so the sea never travels at a constant rate.
+        val t = now.toFloat()
+        val breath = 0.60f + 0.25f * sin(t * 0.42f) + 0.15f * sin(t * 0.27f + 1.3f)
+        val aspect = height.toFloat() / width
+        GLES30.glUseProgram(drawing)
+        GLES30.glUniform1f(uniform("time"), t)
+        GLES30.glUniform1f(uniform("seaTime"), t * 0.2f + 0.18f * sin(t * 0.33f))
+        GLES30.glUniform1f(uniform("amplitude"), 0.16f * breath + sea.swell * 1.25f)
+        GLES30.glUniform1f(uniform("aspect"), aspect)
+        // A wider window is given a longer stretch of sea, not a stretched one.
+        GLES30.glUniform1f(uniform("reach"), max(1f, 0.62f / max(aspect, 0.01f)))
+        GLES30.glUniform1f(uniform("swell"), sea.swell)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, history)
 
         GLES30.glEnable(GLES30.GL_BLEND)
         // Added, as SwiftUI's plus-lighter adds: the pass's colour at its strength on top of what is there.
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE)
-        GLES30.glUseProgram(drawing)
         GLES30.glBindVertexArray(vertices)
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffer)
-        GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, strips.size * 4, upload)
-        val perStrip = RibbonSea.COLUMNS * 2
-        var strip = 0
+        val perLine = RibbonSea.COLUMNS * 2
+        val halfAt = uniform("halfWidth")
+        val inkAt = uniform("ink")
         for (line in 0 until RibbonSea.LINES) {
-            val bright = sea.brightness(line)
             for (pass in PASSES) {
-                GLES30.glUniform4f(inkAt, pass.r, pass.g, pass.b, min(1f, pass.alpha * bright))
-                GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, strip * perStrip, perStrip)
-                strip++
+                // The ribbon's half-width is 0.024 of the half-height; in device units that is 0.048 of the height.
+                GLES30.glUniform1f(halfAt, HALF_WIDTH * 2f * pass.width)
+                GLES30.glUniform4f(inkAt, pass.r, pass.g, pass.b, pass.alpha)
+                GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, line * perLine, perLine)
             }
         }
         GLES30.glBindVertexArray(0)
@@ -247,30 +188,80 @@ class RibbonLook : StageRenderer {
 
         const val HALF_WIDTH = 0.024f
 
-        /** The floats in one strip: two corners a column, x and y each. */
-        const val STRIP = RibbonSea.COLUMNS * 2 * 2
-
-        /** The end fade per column, which depends only on the column. */
-        val FADE = FloatArray(RibbonSea.COLUMNS) { c ->
-            val u = c.toFloat() / (RibbonSea.COLUMNS - 1)
-            smoothstep(0f, 0.08f, u) * smoothstep(1f, 0.92f, u)
-        }
-
-        fun smoothstep(from: Float, to: Float, x: Float): Float {
-            val t = ((x - from) / (to - from)).coerceIn(0f, 1f)
-            return t * t * (3 - 2 * t)
-        }
-
+        /** `RibbonSea.trace` and `RibbonView`'s end fade from the iPhone, for one point of one line. */
         const val VERTEX = """#version 300 es
-layout(location = 0) in vec2 at;
-void main() { gl_Position = vec4(at, 0.0, 1.0); }
+precision highp float;
+layout(location = 0) in vec3 corner;
+uniform float time;
+uniform float seaTime;
+uniform float amplitude;
+uniform float aspect;
+uniform float reach;
+uniform float swell;
+uniform float halfWidth;
+uniform sampler2D history;
+out float bright;
+
+float along(vec2 d, float x, float z) {
+    d = normalize(d);
+    return d.x * x + d.y * z;
+}
+
+// An open sea: three long directional rollers, so a line carries a couple of flowing curves.
+float sea(float x, float z, float t) {
+    return 0.50 * sin(along(vec2(1.00, 0.30), x, z) * 1.1 - t * 0.55)
+         + 0.28 * sin(along(vec2(0.60, -0.80), x, z) * 1.9 - t * 0.85)
+         + 0.16 * sin(along(vec2(-0.35, 1.00), x, z) * 3.2 - t * 1.15);
+}
+
+float rise(float from, float to, float x) {
+    float t = clamp((x - from) / (to - from), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+void main() {
+    float u = corner.x / 149.0;
+    float v = corner.y / 14.0;
+    float wz = (v - 0.5) * 2.2;
+    // Wider toward the back, or perspective pulls the far lines' ends inside the frame.
+    float span = (3.0 + v * 3.4) * reach;
+    // The front reads treble, the back reads bass.
+    float fcoord = 1.0 - v;
+    float ramp = 0.06 + (0.15 - 0.06) * v;
+    float wx = (u - 0.5) * span;
+
+    float wy = sea(wx, wz, seaTime) * amplitude;
+    // The band's history, read where the iPhone reads it: linearly between the columns and the bands.
+    float born = texture(history, vec2((u * 99.0 + 0.5) / 100.0, (fcoord * 15.0 + 0.5) / 16.0)).r;
+    float carrier = sin(wx * 13.0 + wz * 1.6 - time * 6.0) + sin(wx * 20.0 + wz * 2.4 - time * 8.4) * 0.5;
+    wy += carrier * (0.003 + born * ramp);
+
+    // The camera: a pinhole raised above the sea and pitched down twenty degrees.
+    float focal = 2.6;
+    float pitch = 20.0 * 3.14159265 / 180.0;
+    float cp = cos(pitch), sp = sin(pitch);
+    float dist = 3.2;
+    float dy = wy - dist * sp;
+    float dz = wz + dist * cp;
+    float cy = dy * cp + dz * sp;
+    float cz = max(-dy * sp + dz * cp, 0.05);
+    vec2 p = vec2(wx * focal / cz * aspect, cy * focal / cz);
+
+    // Both edges pulled in to the centre at the ends, so the line tapers away.
+    float fade = rise(0.0, 0.08, u) * rise(1.0, 0.92, u);
+    p.y += corner.z * halfWidth * fade;
+
+    bright = (0.45 + 0.55 * (1.0 - v)) * (0.8 + 0.5 * swell);
+    gl_Position = vec4(p, 0.0, 1.0);
+}
 """
 
         const val FRAGMENT = """#version 300 es
 precision mediump float;
 uniform vec4 ink;
+in float bright;
 out vec4 colour;
-void main() { colour = ink; }
+void main() { colour = vec4(ink.rgb, min(1.0, ink.a * bright)); }
 """
     }
 }

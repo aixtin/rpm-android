@@ -85,6 +85,7 @@ import com.rpm.player.core.library.QuickPick
 import com.rpm.player.core.library.TrackList
 import com.rpm.player.phone.library.FramedList
 import com.rpm.player.phone.library.PlaylistSleeve
+import com.rpm.player.phone.library.ListRoom
 import com.rpm.player.core.library.listName
 import com.rpm.player.core.radio.RadioStation
 import com.rpm.player.core.radio.StationLogo
@@ -403,6 +404,9 @@ private fun BannerCardView(
         is BannerCard.OfStation -> stringResource(R.string.Rpm_Tab_Radio)
     }
     val title = album?.album ?: list?.let { listName(it.name) } ?: station?.display.orEmpty()
+    // A generated list's card stands on the room in the list's own colours, and its sleeve wears the list's frame, as
+    // on the playlists view (`HomeBannerView`'s list card on iPhone; the room is still here, as every list room is).
+    val framed = list?.let { FramedList.of(it, title) }
     val subtitle = album?.artist
 
     Box(
@@ -418,6 +422,7 @@ private fun BannerCardView(
             },
     ) {
         when {
+            framed != null -> ListRoom(framed.look, Modifier.fillMaxSize())
             photo != null -> {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current).data(photo).build(),
@@ -446,7 +451,7 @@ private fun BannerCardView(
             horizontalArrangement = Arrangement.spacedBy(BANNER_MARGIN),
             verticalAlignment = Alignment.Bottom,
         ) {
-            BannerSleeve(cover, station, list != null, logoStamp, images)
+            BannerSleeve(cover, station, list != null, framed, logoStamp, images)
             val shadow = Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 1f), blurRadius = 6f)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 BasicText(kicker, style = display(12f).copy(color = Ink.white(0xCC), letterSpacing = pt(1.5f), shadow = shadow))
@@ -460,8 +465,14 @@ private fun BannerCardView(
 }
 
 @Composable
-private fun BannerSleeve(cover: Any?, station: RadioStation?, list: Boolean, logoStamp: String, images: ImageLoader) {
+private fun BannerSleeve(cover: Any?, station: RadioStation?, list: Boolean, framed: FramedList?, logoStamp: String, images: ImageLoader) {
     val shape = RoundedCornerShape(10.dp)
+    if (framed != null) {
+        Box(Modifier.size(BANNER_SLEEVE).shadow(10.dp, shape, ambientColor = Color.Black.copy(alpha = 0.5f), spotColor = Color.Black.copy(alpha = 0.5f))) {
+            PlaylistSleeve(cover, Glyph.playlists, BANNER_SLEEVE, corner = 10.dp, mark = 34f, images, framed)
+        }
+        return
+    }
     Box(
         Modifier
             .size(BANNER_SLEEVE)
@@ -600,7 +611,10 @@ private fun QuickLine(pick: QuickPick, collection: Collection, images: ImageLoad
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val shape = RoundedCornerShape(5.dp)
-        Box(Modifier.size(QUICK_ART).clip(shape).background(Color.Black.copy(alpha = 0x22 / 255f)), contentAlignment = Alignment.Center) {
+        // A generated list's line wears the list's frame, as its square does everywhere else.
+        val framed = (pick as? QuickPick.OfList)?.let { FramedList.of(it.list, title) }
+        if (framed != null) PlaylistSleeve(picture, Glyph.playlists, QUICK_ART, corner = 5.dp, mark = 15f, images, framed)
+        else Box(Modifier.size(QUICK_ART).clip(shape).background(Color.Black.copy(alpha = 0x22 / 255f)), contentAlignment = Alignment.Center) {
             BasicText(glyph, style = icon(15f).copy(color = Ink.white(0x3A)))
             if (picture != null) {
                 AsyncImage(

@@ -537,7 +537,6 @@ private fun Shell(services: Services, settings: PhoneSettings, ready: LibrarySta
                                 images,
                                 bottomRoom = chrome,
                                 actions = homeActions,
-                                backdrop = backdrop,
                                 onScreen = tab == Tab.Home && homeOpened.isEmpty(),
                                 onSwitch = if (shelfRows.size > 1) ({ picking = true }) else null,
                                 // The lock's key: the library, on its records.

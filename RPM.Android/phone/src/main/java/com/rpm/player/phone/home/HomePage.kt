@@ -42,7 +42,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.delay
-import com.rpm.player.phone.design.Backdrop
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import com.rpm.player.phone.design.backdropSource
+import com.rpm.player.phone.design.rememberBackdrop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
@@ -169,7 +173,6 @@ fun HomePage(
     images: ImageLoader,
     bottomRoom: Dp,
     actions: HomeActions,
-    backdrop: Backdrop,
     onScreen: Boolean,
     onSwitch: (() -> Unit)?,
     onAddMusic: () -> Unit,
@@ -177,10 +180,13 @@ fun HomePage(
 ) {
     val collection = ready.collection
     val home = ready.home
+    // The glass on home (the switch key, the lock's key) frosts the page's ground, never the page itself: a key that
+    // drew a layer holding itself would nest without end.
+    val backdrop = rememberBackdrop()
     // Home needs a row's worth of records before it can say anything (`HomeGate` on iPhone).
     if (collection.albums.size < HomeShelf.ROW_LENGTH) {
         Box(Modifier.fillMaxSize()) {
-            ArtGround(null, images)
+            Box(Modifier.fillMaxSize().backdropSource(backdrop)) { ArtGround(null, images) }
             LaunchedEffect(Unit) { onReady() }
             HomeLock(collection.albums.size, HomeShelf.ROW_LENGTH, backdrop, onAddMusic, Modifier.align(Alignment.Center).padding(bottom = bottomRoom))
             if (onSwitch != null) {
@@ -202,7 +208,7 @@ fun HomePage(
     val overhang = if (banner.isNotEmpty() && heading > 0.dp) heading + statusBar else 0.dp
 
     Box(Modifier.fillMaxSize()) {
-        ArtGround(dress, images)
+        Box(Modifier.fillMaxSize().backdropSource(backdrop)) { ArtGround(dress, images) }
         Column(
             Modifier
                 .fillMaxSize()
@@ -290,10 +296,16 @@ private fun Banner(
     }
     // The turn: seven seconds after the strip last moved, while the page is on screen and at its top. Any change to those
     // starts the count again.
-    LaunchedEffect(ring, turns, pager.settledPage, pager.isScrollInProgress) {
-        if (!ring || !turns || pager.isScrollInProgress) return@LaunchedEffect
-        delay(DWELL_MS)
-        pager.animateScrollToPage(pager.settledPage + 1)
+    // The step runs in a scope of its own: the strip moving under it is one of the changes that start the count again,
+    // and that must not stop the step itself.
+    val stepping = rememberCoroutineScope()
+    LaunchedEffect(ring, turns, pager) {
+        if (!ring || !turns) return@LaunchedEffect
+        snapshotFlow { pager.settledPage to pager.isScrollInProgress }.collectLatest { (at, moving) ->
+            if (moving) return@collectLatest
+            delay(DWELL_MS)
+            stepping.launch { pager.animateScrollToPage(at + 1) }
+        }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {

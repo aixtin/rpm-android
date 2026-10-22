@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -122,19 +123,35 @@ fun Modifier.frost(backdrop: Backdrop, shape: Shape, blur: Dp): Modifier {
         .drawBehind {
             val sigma = blur.toPx()
             val margin = ceil(sigma * 3)
-            val radius = radiusFor(sigma)
+            // The page under the glass is drawn into the layer at a quarter of its size and blurred there, then
+            // scaled back up. A blur this wide keeps no detail the smaller copy loses, and the layer and its blur
+            // cost a sixteenth of the pixels. At full size the two chrome surfaces took about 40 ms of every
+            // frame on the Titan while the page under them scrolled.
+            val radius = radiusFor(sigma * FROST_SCALE)
             blurred.renderEffect = BlurEffect(radius, radius, TileMode.Clamp)
-            blurred.record(size = IntSize((size.width + 2 * margin).toInt(), (size.height + 2 * margin).toInt())) {
-                translate(backdrop.origin.x - here.x + margin, backdrop.origin.y - here.y + margin) {
-                    drawLayer(backdrop.layer)
+            blurred.record(
+                size = IntSize(
+                    ceil((size.width + 2 * margin) * FROST_SCALE).toInt().coerceAtLeast(1),
+                    ceil((size.height + 2 * margin) * FROST_SCALE).toInt().coerceAtLeast(1),
+                ),
+            ) {
+                scale(FROST_SCALE, FROST_SCALE, pivot = Offset.Zero) {
+                    translate(backdrop.origin.x - here.x + margin, backdrop.origin.y - here.y + margin) {
+                        drawLayer(backdrop.layer)
+                    }
                 }
             }
             clipPath(outlinePath(shape.createOutline(size, layoutDirection, this))) {
-                translate(-margin, -margin) { drawLayer(blurred) }
+                translate(-margin, -margin) {
+                    scale(1 / FROST_SCALE, 1 / FROST_SCALE, pivot = Offset.Zero) { drawLayer(blurred) }
+                }
             }
             drawOutline(shape.createOutline(size, layoutDirection, this), Ink.glassWash)
         }
 }
+
+/** The scale the frost blurs at: a quarter of the screen's pixels on each side. */
+private const val FROST_SCALE = 0.25f
 
 /**
  * Skia turns a blur radius into a standard deviation as `0.57735 r + 0.5`. This function does the reverse,

@@ -72,6 +72,7 @@ import com.rpm.player.core.library.Collection
 import com.rpm.player.core.library.LibraryState
 import com.rpm.player.phone.PhoneSettings
 import com.rpm.player.phone.design.Backdrop
+import com.rpm.player.phone.design.BlurredPicture
 import com.rpm.player.phone.design.GlassKey
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.Ink
@@ -284,13 +285,7 @@ internal fun ArtistBox(artist: ArtistWallItem, width: Dp, collection: Collection
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            sleeve != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(sleeve).build(),
-                contentDescription = null,
-                imageLoader = images,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().blur(with(density) { radiusFor(24.dp.toPx()).toDp() }, BlurredEdgeTreatment.Rectangle),
-            )
+            sleeve != null -> BlurredPicture(sleeve, images, sigma = 24.dp, modifier = Modifier.fillMaxSize())
         }
         // The shade gets darker towards the bottom of the box. The name is across the middle.
         Box(

@@ -78,6 +78,7 @@ import com.rpm.player.core.library.TrackList
 import com.rpm.player.core.library.listName
 import com.rpm.player.core.radio.RadioStation
 import com.rpm.player.core.radio.StationLogo
+import com.rpm.player.phone.design.BlurredPicture
 import com.rpm.player.phone.design.Glyph
 import com.rpm.player.phone.design.Ink
 import com.rpm.player.phone.design.PageTitle
@@ -322,16 +323,7 @@ private fun BannerCardView(
                 )
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.2f)))
             }
-            cover != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                val density = LocalDensity.current
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(cover).build(),
-                    contentDescription = null,
-                    imageLoader = images,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().blur(with(density) { radiusFor(40.dp.toPx()).toDp() }, BlurredEdgeTreatment.Rectangle),
-                )
-            }
+            cover != null -> BlurredPicture(cover, images, sigma = 40.dp, modifier = Modifier.fillMaxSize())
         }
         // Darker towards the foot, where the writing stands.
         Box(

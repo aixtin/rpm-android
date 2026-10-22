@@ -22,7 +22,22 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 shrinks and optimises the code. Compose leans on it: a build without it carries the
+            // composition tracing and the unoptimised lambdas, and scrolls at half the frame rate on the Titan.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        // The release build signed with the debug key, for the test phone. It installs over the debug build
+        // and keeps the session, and is compiled and not debuggable, like the build a listener gets. Build it
+        // with `assembleHandset`, then run on the phone `cmd package compile -m speed -f com.rpm.player`
+        // (a Play install gets the same from the baseline profiles the profile installer carries).
+        create("handset") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            // Readable by the system profiler and `dumpsys gfxinfo` without being debuggable.
+            isProfileable = true
         }
     }
 
@@ -53,6 +68,9 @@ dependencies {
     implementation(libs.mlkit.face.detection)
     // Apple and Google sign-in in a Custom Tab. The iPhone app uses ASWebAuthenticationSession for this.
     implementation(libs.androidx.browser)
+    // Installs the baseline profiles that Compose and the other libraries ship, so their code is compiled
+    // ahead of time on a sideloaded install too, not only on one from Google Play.
+    implementation(libs.androidx.profileinstaller)
 
     testImplementation(libs.junit)
 }

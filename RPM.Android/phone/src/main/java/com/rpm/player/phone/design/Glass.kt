@@ -69,6 +69,9 @@ import kotlin.math.ceil
 class Backdrop internal constructor(internal val layer: GraphicsLayer) {
     /** Where the source sits in the window. A glass surface reads its own position against this. */
     internal var origin by mutableStateOf(Offset.Zero)
+
+    /** How big the source is. The glass blurs nothing outside it (see [frost]). */
+    internal var size by mutableStateOf(IntSize.Zero)
 }
 
 @Composable
@@ -83,7 +86,10 @@ fun rememberBackdrop(): Backdrop {
  * keeps drawing forever.
  */
 fun Modifier.backdropSource(backdrop: Backdrop): Modifier = this
-    .onGloballyPositioned { backdrop.origin = it.positionInRoot() }
+    .onGloballyPositioned {
+        backdrop.origin = it.positionInRoot()
+        backdrop.size = it.size
+    }
     .drawWithContent {
         backdrop.layer.record { this@drawWithContent.drawContent() }
         drawLayer(backdrop.layer)
@@ -105,9 +111,11 @@ val CARD_BLUR: Dp = 30.dp
  * system material. Android has no such material, so nothing needs correcting here.
  *
  * Only the part of the backdrop under the surface is blurred. Three standard deviations of margin are
- * added around it, so the edges blur from real content. Edges past the screen are clamped, not faded. The
- * Uno phone head's `GlassBrush.Clamp` does the same. A decal edge would let the unblurred page show through
- * the bottom of a short bar.
+ * added around it, so the edges blur from real content. The margin stops at the backdrop's own edges, and the
+ * blur clamps there: past the screen's edge it repeats the screen's last pixels, as the Uno phone head's
+ * `GlassBrush.Clamp` does. A margin that ran past the screen would hold nothing, the blur would mix that
+ * emptiness into the frost, and the sharp page under the glass would show through it near the edge (it did:
+ * home's headings showed through the left end of the mini player and the tab bar).
  *
  * Android 9 to 11 cannot blur a drawing, because `RenderEffect` starts at [Build.VERSION_CODES.S]. Below
  * that the surface is [Ink.frostless] instead of a see-through window onto the page.
@@ -128,21 +136,27 @@ fun Modifier.frost(backdrop: Backdrop, shape: Shape, blur: Dp): Modifier {
             // cost a sixteenth of the pixels. At full size the two chrome surfaces took about 40 ms of every
             // frame on the Titan while the page under them scrolled.
             val radius = radiusFor(sigma * FROST_SCALE)
+            // The part of the backdrop that is blurred, in the window: the surface and its margin, cut to the backdrop.
+            val left = maxOf(here.x - margin, backdrop.origin.x)
+            val top = maxOf(here.y - margin, backdrop.origin.y)
+            val right = minOf(here.x + size.width + margin, backdrop.origin.x + backdrop.size.width)
+            val bottom = minOf(here.y + size.height + margin, backdrop.origin.y + backdrop.size.height)
+            if (right <= left || bottom <= top) return@drawBehind
             blurred.renderEffect = BlurEffect(radius, radius, TileMode.Clamp)
             blurred.record(
                 size = IntSize(
-                    ceil((size.width + 2 * margin) * FROST_SCALE).toInt().coerceAtLeast(1),
-                    ceil((size.height + 2 * margin) * FROST_SCALE).toInt().coerceAtLeast(1),
+                    ceil((right - left) * FROST_SCALE).toInt().coerceAtLeast(1),
+                    ceil((bottom - top) * FROST_SCALE).toInt().coerceAtLeast(1),
                 ),
             ) {
                 scale(FROST_SCALE, FROST_SCALE, pivot = Offset.Zero) {
-                    translate(backdrop.origin.x - here.x + margin, backdrop.origin.y - here.y + margin) {
+                    translate(backdrop.origin.x - left, backdrop.origin.y - top) {
                         drawLayer(backdrop.layer)
                     }
                 }
             }
             clipPath(outlinePath(shape.createOutline(size, layoutDirection, this))) {
-                translate(-margin, -margin) {
+                translate(left - here.x, top - here.y) {
                     scale(1 / FROST_SCALE, 1 / FROST_SCALE, pivot = Offset.Zero) { drawLayer(blurred) }
                 }
             }
